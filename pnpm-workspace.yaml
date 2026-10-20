@@ -1,0 +1,9 @@
+allowBuilds:
+  esbuild: true
+  vue-demi: true
+
+# Drop-in typescript replacement: classic package surface (vue-tsc
+# compatible) with the tsgo 7.x engine behind it. Pin exact — caret
+# ranges don't match prerelease versions.
+overrides:
+  typescript: npm:typescript-native-bridge@6.0.3-bridge.18.tsgo.7.0.2

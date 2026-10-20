@@ -1,0 +1,6 @@
+/public/data
+/node_modules
+/dist
+/.idea
+/*.tsbuildinfo
+/src/vendor/**/*.wasm

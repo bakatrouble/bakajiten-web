@@ -1,0 +1,26 @@
+@import "tailwindcss";
+@import "./theme.css";
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+    body {
+        @apply bg-background text-foreground;
+        font-family: "Noto Sans CJK JP", "Noto Sans", system-ui, sans-serif;
+    }
+}
+
+ruby {
+    ruby-align: center;
+}
+
+rt {
+    font-size: 0.5em;
+    opacity: 0.7;
+}
+
+canvas.recognizer-canvas {
+    touch-action: none;
+    cursor: crosshair;
+}

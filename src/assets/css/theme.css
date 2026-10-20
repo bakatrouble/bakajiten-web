@@ -1,0 +1,102 @@
+@custom-variant dark (&:is(.dark *));
+
+/* Pinned Tailwind palette tokens referenced below (identical to
+ * the Tailwind defaults — they exist so editors and tooling can
+ * resolve the `var(--color-*)` references statically). */
+@theme {
+    --color-orange-50: oklch(98% 0.016 73.684);
+    --color-orange-500: oklch(70.5% 0.213 47.604);
+    --color-orange-600: oklch(64.6% 0.222 41.116);
+    --color-neutral-50: oklch(98.5% 0 none);
+    --color-neutral-100: oklch(97% 0 none);
+    --color-neutral-200: oklch(92.2% 0 none);
+    --color-neutral-400: oklch(70.8% 0 none);
+    --color-neutral-500: oklch(55.6% 0 none);
+    --color-neutral-800: oklch(26.9% 0 none);
+    --color-neutral-950: oklch(14.5% 0 none);
+    --color-red-400: oklch(70.4% 0.191 22.216);
+    --color-red-500: oklch(63.7% 0.237 25.331);
+}
+
+:root {
+    --radius: 0.625rem;
+    --background: #e0e0e0;
+    --foreground: var(--color-neutral-950);
+    --card: #fff;
+    --card-foreground: var(--color-neutral-950);
+    --popover: #fff;
+    --popover-foreground: var(--color-neutral-950);
+    --primary: var(--color-orange-600);
+    --primary-foreground: var(--color-orange-50);
+    --secondary: var(--color-neutral-100);
+    --secondary-foreground: var(--color-neutral-800);
+    --muted: var(--color-neutral-100);
+    --muted-foreground: var(--color-neutral-500);
+    --accent: var(--color-neutral-100);
+    --accent-foreground: var(--color-neutral-800);
+    --destructive: var(--color-red-500);
+    --border: var(--color-neutral-400);
+    --input: var(--color-neutral-400);
+    --ring: var(--color-orange-600);
+    --canvas-paper: var(--background);
+    --canvas-grid: #ccc;
+    --canvas-ink: #1565c0;
+    --canvas-active: #ffc55e;
+    --canvas-badge-text: #fff;
+}
+
+.dark {
+    --background: #2c2c2c;
+    --foreground: var(--color-neutral-50);
+    --card: #323232;
+    --card-foreground: var(--color-neutral-50);
+    --popover: #323232;
+    --popover-foreground: var(--color-neutral-50);
+    --primary: var(--color-orange-500);
+    --primary-foreground: var(--color-neutral-950);
+    --secondary: #404040;
+    --secondary-foreground: var(--color-neutral-50);
+    --muted: #3a3a3a;
+    --muted-foreground: var(--color-neutral-400);
+    --accent: #404040;
+    --accent-foreground: var(--color-neutral-50);
+    --destructive: var(--color-red-400);
+    --border: #4b4b4b;
+    --input: #4b4b4b;
+    --ring: var(--color-orange-500);
+    --canvas-paper: #1f1f1f;
+    --canvas-grid: #444;
+    --canvas-ink: #7cc4ff;
+    --canvas-active: #ffc55e;
+    --canvas-badge-text: #fff;
+}
+
+@theme inline {
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --color-canvas-paper: var(--canvas-paper);
+    --color-canvas-grid: var(--canvas-grid);
+    --color-canvas-ink: var(--canvas-ink);
+    --color-canvas-active: var(--canvas-active);
+    --color-canvas-badge-text: var(--canvas-badge-text);
+}

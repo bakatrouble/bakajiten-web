@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="color-scheme" content="light dark">
+        <title>Bakajiten — Japanese Dictionary</title>
+        <!-- Pre-paint background (same values as theme.css): the
+            inline script below owns the dark switch, so the page
+            can never disagree with the stored theme. -->
+        <style>
+            html {
+                background: #e0e0e0;
+            }
+            html.dark {
+                background: #2c2c2c;
+            }
+        </style>
+        <script>
+            try {
+                var t =
+                    (JSON.parse(localStorage.getItem('bakajiten-web-settings') || '{}') || {})
+                        .theme || 'auto';
+                var dark =
+                    t === 'dark' ||
+                    (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+                if (dark) {
+                    document.documentElement.classList.add('dark');
+                }
+                // Stored choice beats the media query above (auto leaves
+                // it alone); the app clears this once booted.
+                if (t === 'light' || t === 'dark') {
+                    document.documentElement.style.background = dark ? '#2c2c2c' : '#e0e0e0';
+                }
+            } catch (e) {}
+        </script>
+    </head>
+    <body>
+        <div id="app" class="isolate"></div>
+        <script type="module" src="/src/main.ts"></script>
+    </body>
+</html>
