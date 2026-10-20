@@ -8,6 +8,10 @@ import { VitePWA } from 'vite-plugin-pwa';
 // data-repo release (see backend/Backend.ts defaultDataBase),
 // overridable per session with ?data=<base-url>.
 export default defineConfig({
+    // Project-page deployments build with PAGES_BASE=/bakajiten-web/
+    // (see .github/workflows/web-pages.yml); dev and previews stay
+    // at the root.
+    base: process.env.PAGES_BASE ?? '/',
     resolve: {
         alias: {
             '@': path.resolve(import.meta.dirname, 'src'),

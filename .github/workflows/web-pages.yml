@@ -1,0 +1,88 @@
+# Build the bakajiten web frontend and publish it to the repo's
+# project page (https://bakatrouble.github.io/bakajiten-web/).
+# The WASM/TypeScript bindings regenerate from the backend
+# workspace, so CI checks out bakatrouble/bakajiten as the layout
+# root and this repo into its frontends/web slot (the same shape
+# local dev uses); dictionary data stays runtime-fetched, nothing
+# is vendored into dist/.
+#
+# Setup (once): bakajiten-web repo → Settings → Pages → Source →
+# GitHub Actions.
+name: web-pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out backend workspace
+        uses: actions/checkout@v4
+        with:
+          repository: bakatrouble/bakajiten
+          path: main
+      - name: Check out frontend
+        uses: actions/checkout@v4
+        with:
+          path: main/frontends/web
+      - name: Rust toolchain (wasm target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Cargo cache (registry, target, installed binaries)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: main
+      - name: Install uniffi-bindgen-js
+        run: |
+          if ! command -v uniffi-bindgen-js >/dev/null; then
+            cargo install uniffi-bindgen-js --version 0.2.1
+          fi
+      - name: pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: main/frontends/web/pnpm-lock.yaml
+      - name: Build backend WASM artifacts
+        working-directory: main
+        run: cargo build --release -p libdict -p librecognizer --target wasm32-unknown-unknown
+      - name: Install frontend dependencies
+        working-directory: main/frontends/web
+        run: pnpm install --frozen-lockfile
+      - name: Build frontend
+        working-directory: main/frontends/web
+        run: pnpm build
+        env:
+          PAGES_BASE: /bakajiten-web/
+      - name: Upload pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: main/frontends/web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
