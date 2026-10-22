@@ -231,15 +231,19 @@ describe.skipIf(SHELL == null)('app', () => {
             expect(await page!.getByTitle('Suffix match').count()).toBe(0);
             await page!.getByTitle('Search options').click();
             await page!.getByRole('menu').waitFor();
-            // Meaning target through the menu clears and searches.
+            // Meaning target through the menu clears and searches;
+            // the menu stays open so more options can be toggled.
             await page!.getByTitle('Meaning (English gloss)').click();
-            expect(await page!.getByRole('menu').count()).toBe(0);
+            expect(await page!.getByRole('menu').count()).toBe(1);
             await page!.getByRole('textbox').click();
+            expect(await page!.getByRole('menu').count()).toBe(0);
             await page!.keyboard.type('to eat', { delay: 30 });
             await page!.waitForTimeout(800);
             expect(await page!.locator('[role="listbox"]').innerText()).toContain('食べる');
             await page!.getByTitle('Search options').click();
             await page!.getByTitle('Japanese (dictionary order)').click();
+            expect(await page!.getByRole('menu').count()).toBe(1);
+            await page!.getByTitle('Search options').click();
         } finally {
             await page!.setViewportSize({ width: 1280, height: 720 });
         }

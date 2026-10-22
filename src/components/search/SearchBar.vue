@@ -38,7 +38,13 @@ const toggleBtn = ref<unknown>(null);
 const isNarrow = useMediaQuery('(max-width: 639px)');
 const menuOpen = ref(false);
 const menuWrap = ref<HTMLElement | null>(null);
-onClickOutside(menuWrap, () => {
+onClickOutside(menuWrap, (e) => {
+    // The scope select renders in a portal (outside menuWrap):
+    // picking a scope must not count as clicking away.
+    const t = e.target as HTMLElement | null;
+    if (t?.closest?.('[data-slot="select-content"], [role="listbox"], [role="option"]')) {
+        return;
+    }
     menuOpen.value = false;
 });
 // Popups anchored to this row open upward when the bar docks at
@@ -127,8 +133,8 @@ function onInput(value: string | number): void {
 
 async function onScope(v: ScopeName): Promise<void> {
     // The select snaps back on its own: scope only changes on a
-    // successful load, missing files revert the switch.
-    menuOpen.value = false;
+    // successful load, missing files revert the switch. The menu
+    // stays open so more options can be toggled.
     await setScope(v);
 }
 
@@ -144,8 +150,8 @@ function toggleSuffix(): void {
 
 function onMode(): void {
     // Affix switches only change the search mode: the query carries
-    // over and re-searches (only the meaning switch clears).
-    menuOpen.value = false;
+    // over and re-searches (only the meaning switch clears). The
+    // menu stays open so more options can be toggled.
     searchNow(field.searchText.value);
 }
 
@@ -153,7 +159,6 @@ function setTarget(toMeaning: boolean): void {
     if (meaning.value === toMeaning) {
         return;
     }
-    menuOpen.value = false;
     setMeaning(toMeaning);
     field.setEnabled(!toMeaning);
     field.clear();
