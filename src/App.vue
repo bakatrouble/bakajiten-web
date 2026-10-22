@@ -34,11 +34,15 @@ const searchbar = ref<{
     buttonRect: () => DOMRect | null;
     focus: () => void;
 } | null>(null);
-const panel = ref<{ place: (x: number, y: number) => void } | null>(null);
+const panel = ref<{
+    place: (x: number, y: number) => void;
+    placeAbove: (x: number, bottom: number) => void;
+} | null>(null);
 const mainPane = ref<HTMLElement | null>(null);
 const divider = ref<{ pct: number } | null>(null);
 const consent = ref<{ recheck: () => void } | null>(null);
 const appSettings = storeToRefs(useSettings()).settings;
+const barBottom = computed(() => appSettings.value.searchBar === 'bottom');
 const recognizerStore = useRecognizer();
 const { open: panelOpen } = storeToRefs(recognizerStore);
 
@@ -89,15 +93,20 @@ function insertChar(ch: string): void {
     searchbar.value?.insertChar(ch);
 }
 
-// Panel anchors top-left at the handwriting button's bottom-left
-// (clamped in place()); clicking anywhere else dismisses it,
-// like the desktop click-away policy.
+// Panel anchors under the handwriting button (top bar), or
+// above it when the search bar docks at the bottom (clamped in
+// place()); clicking anywhere else dismisses it, like the
+// desktop click-away policy.
 function anchorPanel(): void {
     const r = searchbar.value?.buttonRect();
     if (r == null) {
         return;
     }
-    panel.value?.place(r.left, r.bottom + 6);
+    if (barBottom.value) {
+        panel.value?.placeAbove(r.left, r.top - 6);
+    } else {
+        panel.value?.place(r.left, r.bottom + 6);
+    }
 }
 
 watch(panelOpen, (open) => {
@@ -146,23 +155,30 @@ onMounted(() => {
 </script>
 
 <template>
-    <div class="h-screen bg-background text-foreground">
+    <div class="h-screen supports-[height:100dvh]:h-dvh bg-background text-foreground">
         <consent-screen v-if="!ready" ref="consent" @loaded="onConsentLoaded" />
-        <div v-else class="h-screen flex flex-col">
-            <header class="flex items-center gap-2 px-3 py-2 border-b border-border">
-                <h1 class="text-2xl" title="Bakajiten">辞</h1>
-                <search-bar ref="searchbar" class="flex-1" />
+        <div v-else class="h-screen supports-[height:100dvh]:h-dvh flex flex-col">
+            <header
+                :class="barBottom ? 'order-3 border-t' : 'order-1 border-b'"
+                class="flex items-center gap-2 px-3 py-2 border-border"
+            >
+                <search-bar
+                    ref="searchbar"
+                    class="flex-1"
+                    @open-settings="showSettings = true"
+                />
                 <Button
                     variant="ghost"
                     title="Settings"
-                    class="w-10 h-10"
+                    class="w-10 h-10 hidden sm:inline-flex"
                     @click="showSettings = true"
                     ><mdi-icon :path="mdiCog" /></Button
                 >
             </header>
             <div
                 v-if="suggestions.length > 0"
-                class="flex items-center gap-2 px-3 py-1.5 border-b border-border text-sm text-muted-foreground"
+                :class="barBottom ? 'order-2 border-t' : 'order-2 border-b'"
+                class="flex items-center gap-2 px-3 py-1.5 border-border text-sm text-muted-foreground"
             >
                 <span>Did you mean:</span>
                 <Button
@@ -176,7 +192,7 @@ onMounted(() => {
                     {{ s.surface }}
                 </Button>
             </div>
-            <main ref="mainPane" class="flex-1 flex min-h-0">
+            <main ref="mainPane" :class="barBottom ? 'order-1' : 'order-3'" class="flex-1 flex min-h-0">
                 <results-list
                     :style="
                         activeEntry != null
@@ -202,7 +218,7 @@ onMounted(() => {
                     @open-kanji="openKanji"
                 />
             </main>
-            <footer class="px-3 py-1 border-t border-border text-xs text-muted-foreground">
+            <footer class="order-4 px-3 py-1 border-t border-border text-xs text-muted-foreground">
                 {{ status || '&nbsp;' }}
             </footer>
             <kanji-tip :ch="tipCh" :x="tipX" :y="tipY" />

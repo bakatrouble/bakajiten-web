@@ -1,10 +1,12 @@
 <script setup lang="ts">
 // Virtual scrolling over the full hit list: only the visible
 // window (+ overscan) materializes rows via entryAtHit, so any
-// result count scrolls with a bounded DOM. Rows stay uniform
-// single-line; height is measured live (follows UI scale). The
-// list is a real table (header and rows share column geometry);
-// headword/reading widths resize by drag and persist.
+// result count scrolls with a bounded DOM. Rows are uniform
+// single-line (measured live, follows UI scale) and render as a
+// list like the Android results: headline (heading + reading)
+// over the compact senses line. Desktop lays the row out on a
+// CSS grid (heading | reading | meaning, widths resizable and
+// persisted); narrow screens stack headline over senses.
 
 import { storeToRefs } from 'pinia';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -227,7 +229,41 @@ onMounted(() => {
 </script>
 
 <template>
-    <div class="h-full flex flex-col min-h-0">
+    <div
+        class="h-full flex flex-col min-h-0"
+        :style="{ '--w0': `${w0}px`, '--w1': `${w1}px` }"
+    >
+        <div
+            class="hidden sm:grid sm:grid-cols-[var(--w0)_var(--w1)_1fr] bg-background text-xs text-muted-foreground border-b border-border"
+        >
+            <div
+                class="relative text-left font-normal px-2 py-1 shadow-[inset_-1px_0_0_var(--border)]"
+            >
+                Headword
+                <span
+                    class="group/col absolute -right-2 top-0 bottom-0 w-4 cursor-col-resize"
+                    title="Resize column"
+                    @pointerdown="startColResize($event, 0)"
+                    ><span
+                        class="absolute right-[.4rem] top-1 bottom-1 w-1 rounded bg-border group-hover/col:bg-primary"
+                    /></span
+                >
+            </div>
+            <div
+                class="relative text-left font-normal px-2 py-1 shadow-[inset_-1px_0_0_var(--border)]"
+            >
+                Reading
+                <span
+                    class="group/col absolute -right-2 top-0 bottom-0 w-4 cursor-col-resize"
+                    title="Resize column"
+                    @pointerdown="startColResize($event, 1)"
+                    ><span
+                        class="absolute right-[.4rem] top-1 bottom-1 w-1 rounded bg-border group-hover/col:bg-primary"
+                    /></span
+                >
+            </div>
+            <div class="text-left font-normal px-2 py-1">Meaning</div>
+        </div>
         <div
             ref="scroller"
             class="overflow-y-auto relative flex-1 min-h-0"
@@ -235,100 +271,50 @@ onMounted(() => {
             @scroll.passive="onScroll"
             @mouseleave="hover = -1"
         >
-            <table class="w-full table-fixed border-collapse border-border">
-                <colgroup>
-                    <col :style="{ width: `${w0}px` }">
-                    <col :style="{ width: `${w1}px` }">
-                    <col>
-                </colgroup>
-                <thead class="sticky top-0 z-10">
-                    <tr class="bg-background text-xs text-muted-foreground">
-                        <th
-                            scope="col"
-                            class="relative text-left font-normal px-2 py-1 shadow-[inset_-1px_-1px_0_0_var(--border)]"
+            <div v-if="padTop > 0" aria-hidden="true" :style="{ height: `${padTop}px` }" />
+            <div
+                v-for="i in visible"
+                :key="i"
+                role="option"
+                :aria-selected="i === selIndex"
+                class="grid grid-cols-1 sm:grid-cols-[var(--w0)_var(--w1)_1fr] cursor-pointer border-b border-border"
+                :class="rowClass(i)"
+                :title="rowTitle(i)"
+                @click="select(i)"
+                @mousemove="onRowMove($event, i)"
+                @mouseleave="onLeave"
+                @dblclick="onDoubleClick"
+            >
+                <template v-if="rowAt(i).entry != null">
+                    <div class="px-2 sm:border-r sm:border-border">
+                        <div
+                            class="text-lg overflow-hidden whitespace-nowrap"
+                            :class="{ 'opacity-40': isKana(i) }"
                         >
-                            Headword
-                            <span
-                                class="group/col absolute -right-2 top-0 bottom-0 w-4 cursor-col-resize"
-                                title="Resize column"
-                                @pointerdown="startColResize($event, 0)"
-                                ><span
-                                    class="absolute right-[.4rem] top-1 bottom-1 w-1 rounded bg-border group-hover/col:bg-primary"
-                                /></span
-                            >
-                        </th>
-                        <th
-                            scope="col"
-                            class="relative text-left font-normal px-2 py-1 shadow-[inset_-1px_-1px_0_0_var(--border)]"
-                        >
-                            Reading
-                            <span
-                                class="group/col absolute -right-2 top-0 bottom-0 w-4 cursor-col-resize"
-                                title="Resize column"
-                                @pointerdown="startColResize($event, 1)"
-                                ><span
-                                    class="absolute right-[.4rem] top-1 bottom-1 w-1 rounded bg-border group-hover/col:bg-primary"
-                                /></span
-                            >
-                        </th>
-                        <th
-                            scope="col"
-                            class="text-left font-normal px-2 py-1 shadow-[inset_0_-1px_0_0_var(--border)]"
-                        >
-                            Meaning
-                        </th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr v-if="padTop > 0" aria-hidden="true">
-                        <td colspan="3" :style="{ height: `${padTop}px`, padding: 0, border: 0 }" />
-                    </tr>
-                    <tr
-                        v-for="i in visible"
-                        :key="i"
-                        role="option"
-                        :aria-selected="i === selIndex"
-                        class="cursor-pointer border-b border-border"
-                        :class="rowClass(i)"
-                        :title="rowTitle(i)"
-                        @click="select(i)"
-                        @mousemove="onRowMove($event, i)"
-                        @mouseleave="onLeave"
-                        @dblclick="onDoubleClick"
-                    >
-                        <template v-if="rowAt(i).entry != null">
-                            <td class="px-2 border-r border-border">
-                                <div
-                                    class="text-lg overflow-hidden whitespace-nowrap"
-                                    :class="{ 'opacity-40': isKana(i) }"
-                                    v-html="headingHtml(i)"
-                                ></div>
-                            </td>
-                            <td class="px-2 border-r border-border">
-                                <div
-                                    class="overflow-hidden whitespace-nowrap"
-                                    v-html="readingHtml(i)"
-                                ></div>
-                            </td>
-                            <td class="px-2">
-                                <div class="overflow-hidden whitespace-nowrap">
-                                    <template v-for="row in meaningSenses(i)" :key="row.n">
-                                        <span>{{ row.n }}. </span>
-                                        <tag-badges :sense="row.sense" />
-                                        <span v-html="glossHtml(row.sense, i)" class="mr-2"></span>
-                                    </template>
-                                </div>
-                            </td>
-                        </template>
-                    </tr>
-                    <tr v-if="padBottom > 0" aria-hidden="true">
-                        <td
-                            colspan="3"
-                            :style="{ height: `${padBottom}px`, padding: 0, border: 0 }"
-                        />
-                    </tr>
-                </tbody>
-            </table>
+                            <span v-html="headingHtml(i)"></span
+                            ><span class="sm:hidden text-base text-primary">
+                                {{ ' ' }}<span v-html="readingHtml(i)"></span
+                            ></span>
+                        </div>
+                    </div>
+                    <div class="hidden sm:block px-2 border-r border-border">
+                        <div
+                            class="overflow-hidden whitespace-nowrap"
+                            v-html="readingHtml(i)"
+                        ></div>
+                    </div>
+                    <div class="px-2">
+                        <div class="overflow-hidden whitespace-nowrap">
+                            <template v-for="row in meaningSenses(i)" :key="row.n">
+                                <span>{{ row.n }}. </span>
+                                <tag-badges :sense="row.sense" />
+                                <span v-html="glossHtml(row.sense, i)" class="mr-2"></span>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <div v-if="padBottom > 0" aria-hidden="true" :style="{ height: `${padBottom}px` }" />
         </div>
     </div>
 </template>

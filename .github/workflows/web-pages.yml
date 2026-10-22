@@ -86,7 +86,9 @@ jobs:
         run: pnpm build
         env:
           PAGES_BASE: /bakajiten-web/
-          VITE_DATA_BASE: /bakajiten-web/data
+          # Relative: the data dir rides the deploy subpath
+          # (project page, custom domain) instead of naming it.
+          VITE_DATA_BASE: data
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

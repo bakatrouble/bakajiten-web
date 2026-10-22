@@ -125,6 +125,18 @@ const scale = computed({
                     </Select>
                 </div>
                 <div class="flex flex-col gap-1">
+                    <Label>Search bar position</Label>
+                    <Select v-model="settings.searchBar">
+                        <SelectTrigger class="w-full max-w-xs">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="top">Top</SelectItem>
+                            <SelectItem value="bottom">Bottom</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+                <div class="flex flex-col gap-1">
                     <Label>App version</Label>
                     <span class="text-sm text-muted-foreground">v{{ APP_VERSION }}</span>
                 </div>

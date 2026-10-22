@@ -6,12 +6,15 @@ import { watch } from 'vue';
 
 export type Theme = 'auto' | 'light' | 'dark';
 export type RomajiStyle = 'Kana' | 'Hepburn' | 'Kunrei';
+export type SearchBarPosition = 'top' | 'bottom';
 
 export interface Settings {
     theme: Theme;
     scale: number;
     romaji: RomajiStyle;
     kanaCandidates: boolean;
+    /** Search bar dock: top (default) or bottom. */
+    searchBar: SearchBarPosition;
     /** Results pane width in percent (null = default 46). */
     resultsPct: number | null;
     /** Recognizer panel width in px (null = default 368). */
@@ -63,6 +66,7 @@ function defaults(): Settings {
         scale: 100,
         romaji: 'Hepburn',
         kanaCandidates: true,
+        searchBar: 'top',
         resultsPct: null,
         panelWidthPx: null,
         kanjiStrips: { similar: false, parts: false, partOf: false },
@@ -81,6 +85,7 @@ function sanitize(raw: unknown): Settings {
             scale: clampScale(p.scale),
             romaji: p.romaji === 'Kana' || p.romaji === 'Kunrei' ? p.romaji : 'Hepburn',
             kanaCandidates: p.kanaCandidates ?? true,
+            searchBar: p.searchBar === 'bottom' ? 'bottom' : 'top',
             resultsPct: clampPct(p.resultsPct),
             panelWidthPx: clampPanel(p.panelWidthPx),
             kanjiStrips: {

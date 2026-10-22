@@ -6,6 +6,8 @@ import { type DictEntry, Dictionary, KanjiDictionary } from '../vendor/libdict/d
 import { Recognizer } from '../vendor/librecognizer/recognizer.ts';
 import { decodeWire } from './gzip.ts';
 import { dataCache } from './idb.ts';
+import { bytesToHex } from '@noble/hashes/utils.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 
 export interface LoadProgress {
     file: string;
@@ -47,12 +49,12 @@ interface Manifest {
 
 export type FileStatus = 'missing' | 'outdated' | 'current';
 
-/** Data-repo release: versioned `.bin.gz` + size/sha256 manifest.
- *  Production hosts these same-origin (see web-pages.yml, which
- *  bundles the release into the Pages deploy), so browsers fetch
- *  them direct — no CORS proxy anywhere. */
-export const RELEASE_BASE =
-    'https://github.com/bakatrouble/bakajiten-data/releases/latest/download';
+/** Artifacts live next to the app: the Pages deploy bundles the
+ *  data release into its own `data/` dir, local dev serves
+ *  `public/data/` at `/data` after `pnpm fetch-data`. Relative so
+ *  the app works under any subpath (project page, custom
+ *  domain). */
+export const DATA_DIR = 'data';
 
 export interface DataRequest {
     url: string;
@@ -68,9 +70,9 @@ export function dataRequest(dataBase: string, file: string): DataRequest {
 }
 
 /// Where dictionaries come from: explicit argument, `?data=` URL
-/// override (e2e, debugging), `VITE_DATA_BASE` build setting (the
-/// Pages deploy bakes in its own `/data` dir), else the
-/// data-repo release. Nothing is vendored into git.
+/// override (e2e, debugging), `VITE_DATA_BASE` build setting
+/// (relative, so any subpath works), else the local `data/` dir.
+/// Nothing is vendored into git.
 export function defaultDataBase(): string {
     try {
         const q = new URLSearchParams(location.search).get('data');
@@ -81,7 +83,7 @@ export function defaultDataBase(): string {
         // Non-browser (unit tests): fall through below.
     }
     const env = import.meta.env?.VITE_DATA_BASE;
-    return typeof env === 'string' && env !== '' ? env : RELEASE_BASE;
+    return typeof env === 'string' && env !== '' ? env : DATA_DIR;
 }
 
 export interface FilePlan {
@@ -106,8 +108,20 @@ export interface CachePlan {
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-    const digest = await crypto.subtle.digest('SHA-256', bytes as BufferSource);
-    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    if (typeof crypto !== 'undefined' && crypto.subtle != null) {
+        const digest = await crypto.subtle.digest('SHA-256', bytes as BufferSource);
+        return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+    // Insecure contexts (plain-HTTP LAN dev): crypto.subtle only
+    // exists under HTTPS/localhost. Audited dependency instead of
+    // hand-rolled crypto.
+    return sha256Fallback(bytes);
+}
+
+/** Sync SHA-256 for insecure contexts (see above). Exported for
+ *  tests; production reaches it only through sha256Hex. */
+export function sha256Fallback(input: Uint8Array): string {
+    return bytesToHex(sha256(input));
 }
 
 /// What would load cost? Fetches the manifest (tiny), compares it

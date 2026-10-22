@@ -5,7 +5,7 @@
 
 import { useElementSize } from '@vueuse/core';
 import { storeToRefs } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 import { useRecognizer } from '../../state/recognizer.ts';
 import { useSettings } from '../../state/settings.ts';
 import AppIcon from '../common/AppIcon.vue';
@@ -38,6 +38,7 @@ function onKana(): void {
     schedule();
 }
 const grid = ref(true);
+const root = ref<{ $el?: unknown } | null>(null);
 const left = ref(0);
 const top = ref(0);
 
@@ -52,6 +53,18 @@ const statusText = computed(() => {
 function place(x: number, y: number): void {
     left.value = Math.max(8, Math.min(x, window.innerWidth - panelWidthLive.value - 8));
     top.value = Math.max(8, y);
+}
+
+/** Anchor above a docked-bottom search bar: the panel is
+ *  v-if-mounted, so its height is only measurable after render —
+ *  measure, then pin its bottom edge above the given line. */
+function placeAbove(x: number, bottom: number): void {
+    left.value = Math.max(8, Math.min(x, window.innerWidth - panelWidthLive.value - 8));
+    void nextTick(() => {
+        const el = root.value?.$el;
+        const h = el instanceof HTMLElement ? el.offsetHeight : 0;
+        top.value = Math.max(8, bottom - h);
+    });
 }
 
 // Persisted panel width (null = default 368px); widthPx carries
@@ -102,12 +115,13 @@ function startResize(e: PointerEvent): void {
     window.addEventListener('pointerup', up);
 }
 
-defineExpose({ place });
+defineExpose({ place, placeAbove });
 </script>
 
 <template>
     <Card
         v-if="open"
+        ref="root"
         class="fixed z-40 py-0!"
         data-panel
         :style="{ left: `${left}px`, top: `${top}px`, width: `${panelWidthLive}px`, minWidth: `${panelMin}px` }"

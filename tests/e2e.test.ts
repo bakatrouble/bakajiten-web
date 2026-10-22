@@ -223,6 +223,30 @@ describe.skipIf(SHELL == null)('app', () => {
         await page!.keyboard.press('Escape');
     }, 90000);
 
+    it('collapses search controls into a menu on narrow screens', async () => {
+        await page!.setViewportSize({ width: 390, height: 844 });
+        try {
+            // Inline mode buttons unmount; the ⋮ menu owns them.
+            await page!.getByTitle('Search options').waitFor();
+            expect(await page!.getByTitle('Suffix match').count()).toBe(0);
+            await page!.getByTitle('Search options').click();
+            await page!.getByRole('menu').waitFor();
+            // Meaning target through the menu clears and searches.
+            await page!.getByTitle('Meaning (English gloss)').click();
+            expect(await page!.getByRole('menu').count()).toBe(0);
+            await page!.getByRole('textbox').click();
+            await page!.keyboard.type('to eat', { delay: 30 });
+            await page!.waitForTimeout(800);
+            expect(await page!.locator('[role="listbox"]').innerText()).toContain('食べる');
+            await page!.getByTitle('Search options').click();
+            await page!.getByTitle('Japanese (dictionary order)').click();
+        } finally {
+            await page!.setViewportSize({ width: 1280, height: 720 });
+        }
+        // Desktop row is back.
+        await page!.getByTitle('Suffix match').waitFor();
+    }, 90000);
+
     it('has no JS errors', () => {
         expect(failures).toEqual([]);
     });

@@ -325,10 +325,11 @@ describe('deinflection battery', () => {
 });
 
 describe('dataRequest', () => {
-    it('fetches release artifacts direct (same-origin hosted)', async () => {
-        const { RELEASE_BASE, dataRequest } = await import('../src/backend/Backend.ts');
-        expect(dataRequest(RELEASE_BASE, 'manifest.json')).toEqual({
-            url: `${RELEASE_BASE}/manifest.json`,
+    it('fetches artifacts direct under a relative base', async () => {
+        const { DATA_DIR, dataRequest } = await import('../src/backend/Backend.ts');
+        expect(DATA_DIR).toBe('data');
+        expect(dataRequest(DATA_DIR, 'manifest.json')).toEqual({
+            url: 'data/manifest.json',
             headers: {},
         });
     });
@@ -351,6 +352,31 @@ describe('dataRequest', () => {
             url: '/data/manifest.json',
             headers: {},
         });
+    });
+});
+
+describe('sha256Fallback', () => {
+    it('matches the NIST vectors', async () => {
+        const { sha256Fallback } = await import('../src/backend/Backend.ts');
+        const enc = new TextEncoder();
+        expect(sha256Fallback(enc.encode(''))).toBe(
+            'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        );
+        expect(sha256Fallback(enc.encode('abc'))).toBe(
+            'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+        );
+    });
+
+    it('agrees with WebCrypto across padding boundaries', async () => {
+        const { sha256Fallback } = await import('../src/backend/Backend.ts');
+        for (const len of [0, 55, 56, 57, 64, 119, 1000]) {
+            const bytes = new Uint8Array(len).map((_, i) => (i * 31 + 7) & 0xff);
+            const digest = await crypto.subtle.digest('SHA-256', bytes as BufferSource);
+            const expected = [...new Uint8Array(digest)]
+                .map((b) => b.toString(16).padStart(2, '0'))
+                .join('');
+            expect(sha256Fallback(bytes)).toBe(expected);
+        }
     });
 });
 

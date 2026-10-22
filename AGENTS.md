@@ -19,14 +19,16 @@ dark mode through the `.dark` class).
 Shared icons come from the Qt frontend
 (`frontends/qt/resources/icons/`, `currentColor` SVGs via
 `src/components/AppIcon.vue`).
-The results table holds the full index hit list in a real
-`<table>` and virtualizes rows (`searchIndices` + per-row
-`entryAt`, measured uniform row height, spacer rows), so any
-result count scrolls with a bounded DOM. Headword/reading column
-widths resize by header drag and persist via VueUse
-`useLocalStorage` (`bakajiten-web-columns`). The meaning column
-shows the desktop runs (numbered senses with pos tags and the
-query-match span), clipped without ellipsis.
+The results list holds the full index hit list and virtualizes
+rows (`searchIndices` + per-row `entryAt`, measured uniform row
+height, spacer rows), so any result count scrolls with a bounded
+DOM. Desktop lays each row on a CSS grid (heading | reading |
+meaning — headword/reading widths resize by header drag and
+persist via VueUse `useLocalStorage` (`bakajiten-web-columns`));
+narrow screens stack the headline (heading + reading,
+Android-style) over the senses line. The meaning column shows the
+desktop runs (numbered senses with pos tags and the query-match
+span), clipped without ellipsis to keep row geometry uniform.
 
 ## Run
 
@@ -35,24 +37,23 @@ pnpm install
 pnpm dev      # app shell only; data downloads from the data-repo release
 ```
 
-## Data: consent, proxy, gzip, IndexedDB
+## Data: consent, gzip, IndexedDB
 
 The app never downloads blobs uninvited. On launch it fetches only
-`manifest.json` from the data-repo release
-(`bakajiten-data/releases/latest/download`, overridable per
-session with `?data=<base-url>` or at build time with
-`VITE_DATA_BASE`) and checks the IndexedDB cache
-(`bakajiten-data` store); when files are missing or the manifest
-changed, it shows a consent screen (one-tap bulk download plus
-the same Dictionaries manager used under Settings, so per-file
-status and actions match; Names/Kokugo download on demand there —
-the scope dropdown greys out files not yet downloaded) and
-downloads on confirmation.
-Cross-origin downloads route through the CORS proxy
-(`https://cors.bakatrouble.me`, `X-Target-URL` header);
-loopback and same-origin bases fetch direct. Offline with a warm
-cache loads from the cache without touching the network. Blobs
-ship as `*.bin.gz` straight from the release and decode client-side
+`manifest.json` from its data base (the Pages deploy bundles the
+data release into `public/data/`, baked in as `VITE_DATA_BASE`;
+overridable per session with `?data=<base-url>`) and checks the
+IndexedDB cache (`bakajiten-data` store); when files are missing
+or the manifest changed, it shows a consent screen (one-tap bulk
+download plus the same Dictionaries manager used under Settings,
+so per-file status and actions match; Names/Kokugo download on
+demand there — the scope dropdown greys out files not yet
+downloaded) and downloads on confirmation.
+All fetches go direct, same-origin — the old CORS proxy is gone
+(data releases re-trigger the Pages deploy, so hosted artifacts
+track the latest release). Offline with a warm cache loads from
+the cache without touching the network. Blobs ship as `*.bin.gz`
+straight from the release and decode client-side
 via `DecompressionStream` — with a magic sniff, so hosts that
 transcode `.gz` (`Content-Encoding: gzip`) and hosts that serve
 bytes both work. Values chunk at 8 MB (Chromium caps one record
