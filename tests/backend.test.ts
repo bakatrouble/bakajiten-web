@@ -325,15 +325,15 @@ describe('deinflection battery', () => {
 });
 
 describe('dataRequest', () => {
-    it('routes release artifacts through the CORS proxy', async () => {
-        const { CORS_PROXY, RELEASE_BASE, dataRequest } = await import('../src/backend/Backend.ts');
+    it('fetches release artifacts direct (same-origin hosted)', async () => {
+        const { RELEASE_BASE, dataRequest } = await import('../src/backend/Backend.ts');
         expect(dataRequest(RELEASE_BASE, 'manifest.json')).toEqual({
-            url: `${CORS_PROXY}/manifest.json`,
-            headers: { 'X-Target-URL': RELEASE_BASE },
+            url: `${RELEASE_BASE}/manifest.json`,
+            headers: {},
         });
     });
 
-    it('fetches loopback fixtures direct (unproxyable)', async () => {
+    it('fetches loopback fixtures direct', async () => {
         const { dataRequest } = await import('../src/backend/Backend.ts');
         expect(dataRequest('http://localhost:8939', 'manifest.json')).toEqual({
             url: 'http://localhost:8939/manifest.json',

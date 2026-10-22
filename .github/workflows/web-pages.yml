@@ -3,8 +3,12 @@
 # The WASM/TypeScript bindings regenerate from the backend
 # workspace, so CI checks out bakatrouble/bakajiten as the layout
 # root and this repo into its frontends/web slot (the same shape
-# local dev uses); dictionary data stays runtime-fetched, nothing
-# is vendored into dist/.
+# local dev uses). Dictionary artifacts ship inside the deploy
+# (fetched from the data release into public/data/, served
+# same-origin at /bakajiten-web/data) — no CORS proxy, nothing
+# vendored into git. Data releases re-trigger this workflow via
+# repository_dispatch (data-updated, sent by the data repo's pack
+# job), so the hosted artifacts track the latest data release.
 #
 # Setup (once): bakajiten-web repo → Settings → Pages → Source →
 # GitHub Actions.
@@ -14,6 +18,8 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
+  repository_dispatch:
+    types: [data-updated]
 
 permissions: {}
 
@@ -63,11 +69,24 @@ jobs:
       - name: Install frontend dependencies
         working-directory: main/frontends/web
         run: pnpm install --frozen-lockfile
+      - name: Fetch dictionary artifacts
+        working-directory: main/frontends/web
+        run: |
+          # Bundle the triggering data release when dispatched from
+          # the data repo's pack job, else the current latest. Lands
+          # in public/data/ (gitignored), served same-origin.
+          TAG="${{ github.event.client_payload.tag }}"
+          if [ -n "$TAG" ]; then
+            export BAKAJITEN_DATA_BASE="https://github.com/bakatrouble/bakajiten-data/releases/download/$TAG"
+          fi
+          echo "data base: ${BAKAJITEN_DATA_BASE:-<latest release>}"
+          pnpm fetch-data
       - name: Build frontend
         working-directory: main/frontends/web
         run: pnpm build
         env:
           PAGES_BASE: /bakajiten-web/
+          VITE_DATA_BASE: /bakajiten-web/data
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

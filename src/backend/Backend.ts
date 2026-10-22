@@ -47,55 +47,30 @@ interface Manifest {
 
 export type FileStatus = 'missing' | 'outdated' | 'current';
 
-/** Data-repo release: versioned `.bin.gz` + size/sha256 manifest. */
+/** Data-repo release: versioned `.bin.gz` + size/sha256 manifest.
+ *  Production hosts these same-origin (see web-pages.yml, which
+ *  bundles the release into the Pages deploy), so browsers fetch
+ *  them direct — no CORS proxy anywhere. */
 export const RELEASE_BASE =
     'https://github.com/bakatrouble/bakajiten-data/releases/latest/download';
-
-/** CORS proxy (cors-proxy) for artifact downloads: release hosts
- *  answer without CORS headers, so browsers cannot fetch them
- *  directly. The proxy follows the release redirect chain
- *  server-side and serves the final bytes with ACAO headers.
- *  The target goes in the `X-Target-URL` header; the proxy path
- *  is appended to it (path-append mode). */
-export const CORS_PROXY = 'https://cors.bakatrouble.me';
 
 export interface DataRequest {
     url: string;
     headers: Record<string, string>;
 }
 
-/** Artifact request for a file under a data base. Cross-origin
- *  http(s) targets route through the CORS proxy above; loopback
- *  and same-origin targets fetch direct — a remote proxy can reach
- *  neither the local fixture server nor gain anything from
- *  re-fetching our own origin (and localhost dev must work
- *  without it). */
+/** Artifact request for a file under a data base. Always direct:
+ *  the app serves its own artifacts same-origin (Pages deploy or
+ *  local `public/data/`), the `?data=` override points at a fixture
+ *  or a CORS-open host. */
 export function dataRequest(dataBase: string, file: string): DataRequest {
-    const target = `${dataBase}/${file}`;
-    let u: URL;
-    try {
-        u = new URL(target, typeof location !== 'undefined' ? location.href : 'http://localhost/');
-    } catch {
-        return { url: target, headers: {} };
-    }
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-        return { url: target, headers: {} };
-    }
-    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '::1') {
-        return { url: target, headers: {} };
-    }
-    if (typeof location !== 'undefined' && u.origin === location.origin) {
-        return { url: target, headers: {} };
-    }
-    return {
-        url: `${CORS_PROXY}/${file}`,
-        headers: { 'X-Target-URL': dataBase.replace(/\/+$/, '') },
-    };
+    return { url: `${dataBase}/${file}`, headers: {} };
 }
 
 /// Where dictionaries come from: explicit argument, `?data=` URL
-/// override (e2e, debugging), `VITE_DATA_BASE` build setting, else
-/// the data-repo release. Nothing is vendored.
+/// override (e2e, debugging), `VITE_DATA_BASE` build setting (the
+/// Pages deploy bakes in its own `/data` dir), else the
+/// data-repo release. Nothing is vendored into git.
 export function defaultDataBase(): string {
     try {
         const q = new URLSearchParams(location.search).get('data');
