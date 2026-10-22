@@ -43,10 +43,11 @@ The app never downloads blobs uninvited. On launch it fetches only
 session with `?data=<base-url>` or at build time with
 `VITE_DATA_BASE`) and checks the IndexedDB cache
 (`bakajiten-data` store); when files are missing or the manifest
-changed, it shows a consent screen (required trio with sizes;
-Names/Kokugo listed as on-demand downloads with their sizes,
-downloaded later under Settings → Dictionaries — the scope
-dropdown greys out files not yet downloaded) and downloads on confirmation.
+changed, it shows a consent screen (one-tap bulk download plus
+the same Dictionaries manager used under Settings, so per-file
+status and actions match; Names/Kokugo download on demand there —
+the scope dropdown greys out files not yet downloaded) and
+downloads on confirmation.
 Cross-origin downloads route through the CORS proxy
 (`https://cors.bakatrouble.me`, `X-Target-URL` header);
 loopback and same-origin bases fetch direct. Offline with a warm
@@ -59,10 +60,12 @@ around ~127 MB). Fresh downloads verify size, then sha256 when the
 manifest publishes one; a bad file is evicted and the load throws,
 so retry re-downloads it clean (other cached files are kept).
 Settings shows cache usage with a Clear button, plus a
-Dictionaries table listing every file up front: versions fill in
-asynchronously (spinner while checking), and each row carries an
-always-present action — Download when missing, Update when stale,
-Up to date when current, Delete for cached optional files.
+Dictionaries list (Required then Optional sections, Android-style
+title-subtitle rows) listing every file up front: title plus
+status/saved/latest lines fill in asynchronously once the catalog
+check resolves, and each row carries an always-present action —
+Download when missing, Update when stale, Up to date when current,
+Delete for cached optional files, per-file progress while working.
 Nothing is vendored:
 no local data tree is needed to run the app (tests serve a fixture
 tree explicitly).

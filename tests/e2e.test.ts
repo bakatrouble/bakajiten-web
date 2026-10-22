@@ -96,7 +96,8 @@ afterAll(async () => {
 describe.skipIf(SHELL == null)('app', () => {
     it('asks before downloading, then searches', async () => {
         await page!.getByText(/Dictionaries download/).waitFor({ timeout: 30000 });
-        await page!.getByRole('button', { name: 'Download' }).click();
+        await page!.getByRole('button', { name: 'Download required', exact: true }).click();
+        await page!.getByRole('button', { name: 'Continue', exact: true }).click();
         await page!.getByRole('textbox').click();
         await page!.keyboard.type('a', { delay: 30 });
         await page!.waitForFunction(

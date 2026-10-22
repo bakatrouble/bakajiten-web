@@ -30,6 +30,15 @@ export class DictError extends Error {
 }
 
 /**
+ * Source versions stamped into `kanji.bin`: kanjidic2
+ * `<date_of_creation>` plus the KanjiVG marker.
+ */
+export interface KanjiVersions {
+  kanjidic2: string;
+  kanjivg: string;
+}
+
+/**
  * One deinflected candidate: dictionary-form surface plus the
  * reason chain that produced it. No dictionary verification here
  * (see [`Dictionary::search_indices`] for verified hits) — this
@@ -117,6 +126,17 @@ export interface DictSense {
 export interface JisKuten {
   ku: number;
   ten: number;
+}
+
+export interface KanjiDetailRow {
+  key: KanjiDetailKey;
+  /**
+   * English caption ("Meaning", "ON", …). Qt maps the key to its
+   * own translations instead.
+   */
+  label: string;
+  /** Preformatted value ("-" when the source carries nothing). */
+  value: string;
 }
 
 /**
@@ -208,6 +228,15 @@ export interface LangSource {
 }
 
 /**
+ * Query-match span for highlight: UTF-16 code-unit start+length,
+ * ready for Kotlin/JS/Qt spans.
+ */
+export interface MatchRange {
+  start: number;
+  len: number;
+}
+
+/**
  * One index hit: record index for [`Dictionary::entry_at`].
  * The table model holds these without touching entry contents.
  */
@@ -227,6 +256,50 @@ export interface SearchHit {
   matched: string;
 }
 
+/**
+ * One display-shaped sense: tag groups plus texts. Groups stay
+ * separate (pos/field/misc) — row order (pos/field/misc/gloss on
+ * Android+web vs pos/misc/gloss/field on Qt) stays trackside
+ * presentation, not shaping.
+ */
+export interface ShapedSense {
+  /** 1-based original sense number (gaps stay visible). */
+  n: number;
+  pos: ShapedTag[];
+  field: ShapedTag[];
+  misc: ShapedTag[];
+  glosses: string[];
+  xref: string[];
+  ant: string[];
+  info: string[];
+  sources: ShapedSource[];
+  /** Kanji forms this sense is restricted to. */
+  restrictedKanji: string[];
+  /** Readings this sense is restricted to. */
+  restrictedReading: string[];
+  /**
+   * Usually written in kana alone (first-sense `uk` tag: badge
+   * reads "kana").
+   */
+  uk: boolean;
+}
+
+/** One source-language attestation, passed through for display. */
+export interface ShapedSource {
+  lang: string | null;
+  text: string;
+}
+
+/**
+ * One display badge: abbreviated label (`vt`, or `kana` for the
+ * `uk` tag) plus its description tip.
+ */
+export interface ShapedTag {
+  label: string;
+  tip: string;
+  kind: TagKind;
+}
+
 /** One segment: literal kana run (empty ruby) or ruby group. */
 export interface FuriganaSpan {
   text: string;
@@ -234,10 +307,21 @@ export interface FuriganaSpan {
 }
 
 /**
+ * One kanji detail table row: stable key plus the preformatted
+ * value. Labels stay trackside (Qt translates captions) —
+ * frontends map the key. Row order is the desktop dialog order
+ * (Android/web); Qt reorders to match.
+ */
+export type KanjiDetailKey = 'Meaning' | 'On' | 'Kun' | 'Nanori' | 'Chinese' | 'Korean' | 'Vietnamese' | 'Strokes' | 'Grade' | 'Jlpt' | 'Frequency' | 'Radical' | 'RadicalNames' | 'Unicode' | 'Jis0208' | 'Jis0212' | 'Jis0213' | 'Jis0208Refs' | 'Skip' | 'FourCorner' | 'Deroo' | 'ShDesc' | 'Nelson' | 'Njecd' | 'Oneill' | 'DerooVariant' | 'ShRefs';
+
+/**
  * Search edge mode (Qt search-mode buttons: prefix-only,
  * suffix-only, both toggled = substring, neither = exact).
  */
 export type SearchMode = 'Prefix' | 'Suffix' | 'Middle' | 'Exact';
+
+/** Tag group for one shaped badge (parallel to the label tables). */
+export type TagKind = 'Pos' | 'Field' | 'Misc';
 
 /** Grade category for display (`8` reads `Jouyou`, like the mocks). */
 export type GradeKind = 'Kyouiku' | 'Jouyou' | 'Jinmeiyou' | 'Other';
@@ -639,6 +723,17 @@ if (Symbol.dispose) (KanjiDictionary as any).prototype[Symbol.dispose] = KanjiDi
 
 // --- Serialization helpers ---
 
+function _lowerKanjiVersions(w: UniFFIWriter, value: KanjiVersions): void {
+  w.writeString(value.kanjidic2);
+  w.writeString(value.kanjivg);
+}
+function _liftKanjiVersions(r: UniFFIReader): KanjiVersions {
+  return {
+    kanjidic2: r.readString(),
+    kanjivg: r.readString(),
+  };
+}
+
 function _lowerDeinflection(w: UniFFIWriter, value: Deinflection): void {
   w.writeString(value.surface);
   w.writeSequence(value.chain, (_w, _v) => { _w.writeString(_v); });
@@ -741,6 +836,19 @@ function _liftJisKuten(r: UniFFIReader): JisKuten {
   };
 }
 
+function _lowerKanjiDetailRow(w: UniFFIWriter, value: KanjiDetailRow): void {
+  _lowerKanjiDetailKey(w, value.key);
+  w.writeString(value.label);
+  w.writeString(value.value);
+}
+function _liftKanjiDetailRow(r: UniFFIReader): KanjiDetailRow {
+  return {
+    key: _liftKanjiDetailKey(r),
+    label: r.readString(),
+    value: r.readString(),
+  };
+}
+
 function _lowerKanjiEntry(w: UniFFIWriter, value: KanjiEntry): void {
   w.writeString(value.character);
   w.writeSequence(value.on, (_w, _v) => { _w.writeString(_v); });
@@ -837,6 +945,17 @@ function _liftLangSource(r: UniFFIReader): LangSource {
   };
 }
 
+function _lowerMatchRange(w: UniFFIWriter, value: MatchRange): void {
+  w.writeU32(value.start);
+  w.writeU32(value.len);
+}
+function _liftMatchRange(r: UniFFIReader): MatchRange {
+  return {
+    start: r.readU32(),
+    len: r.readU32(),
+  };
+}
+
 function _lowerSearchHit(w: UniFFIWriter, value: SearchHit): void {
   w.writeU32(value.idx);
   w.writeSequence(value.chain, (_w, _v) => { _w.writeString(_v); });
@@ -850,6 +969,61 @@ function _liftSearchHit(r: UniFFIReader): SearchHit {
   };
 }
 
+function _lowerShapedSense(w: UniFFIWriter, value: ShapedSense): void {
+  w.writeU32(value.n);
+  w.writeSequence(value.pos, (_w, _v) => { _lowerShapedTag(_w, _v); });
+  w.writeSequence(value.field, (_w, _v) => { _lowerShapedTag(_w, _v); });
+  w.writeSequence(value.misc, (_w, _v) => { _lowerShapedTag(_w, _v); });
+  w.writeSequence(value.glosses, (_w, _v) => { _w.writeString(_v); });
+  w.writeSequence(value.xref, (_w, _v) => { _w.writeString(_v); });
+  w.writeSequence(value.ant, (_w, _v) => { _w.writeString(_v); });
+  w.writeSequence(value.info, (_w, _v) => { _w.writeString(_v); });
+  w.writeSequence(value.sources, (_w, _v) => { _lowerShapedSource(_w, _v); });
+  w.writeSequence(value.restrictedKanji, (_w, _v) => { _w.writeString(_v); });
+  w.writeSequence(value.restrictedReading, (_w, _v) => { _w.writeString(_v); });
+  w.writeBool(value.uk);
+}
+function _liftShapedSense(r: UniFFIReader): ShapedSense {
+  return {
+    n: r.readU32(),
+    pos: r.readSequence((_r) => _liftShapedTag(_r)),
+    field: r.readSequence((_r) => _liftShapedTag(_r)),
+    misc: r.readSequence((_r) => _liftShapedTag(_r)),
+    glosses: r.readSequence((_r) => _r.readString()),
+    xref: r.readSequence((_r) => _r.readString()),
+    ant: r.readSequence((_r) => _r.readString()),
+    info: r.readSequence((_r) => _r.readString()),
+    sources: r.readSequence((_r) => _liftShapedSource(_r)),
+    restrictedKanji: r.readSequence((_r) => _r.readString()),
+    restrictedReading: r.readSequence((_r) => _r.readString()),
+    uk: r.readBool(),
+  };
+}
+
+function _lowerShapedSource(w: UniFFIWriter, value: ShapedSource): void {
+  w.writeOptional(value.lang, (_w, _v) => { _w.writeString(_v); });
+  w.writeString(value.text);
+}
+function _liftShapedSource(r: UniFFIReader): ShapedSource {
+  return {
+    lang: r.readOptional((_r) => _r.readString()),
+    text: r.readString(),
+  };
+}
+
+function _lowerShapedTag(w: UniFFIWriter, value: ShapedTag): void {
+  w.writeString(value.label);
+  w.writeString(value.tip);
+  _lowerTagKind(w, value.kind);
+}
+function _liftShapedTag(r: UniFFIReader): ShapedTag {
+  return {
+    label: r.readString(),
+    tip: r.readString(),
+    kind: _liftTagKind(r),
+  };
+}
+
 function _lowerFuriganaSpan(w: UniFFIWriter, value: FuriganaSpan): void {
   w.writeString(value.text);
   w.writeString(value.ruby);
@@ -859,6 +1033,68 @@ function _liftFuriganaSpan(r: UniFFIReader): FuriganaSpan {
     text: r.readString(),
     ruby: r.readString(),
   };
+}
+
+function _lowerKanjiDetailKey(w: UniFFIWriter, value: KanjiDetailKey): void {
+  if (value === 'Meaning') { w.writeI32(1); return; }
+  if (value === 'On') { w.writeI32(2); return; }
+  if (value === 'Kun') { w.writeI32(3); return; }
+  if (value === 'Nanori') { w.writeI32(4); return; }
+  if (value === 'Chinese') { w.writeI32(5); return; }
+  if (value === 'Korean') { w.writeI32(6); return; }
+  if (value === 'Vietnamese') { w.writeI32(7); return; }
+  if (value === 'Strokes') { w.writeI32(8); return; }
+  if (value === 'Grade') { w.writeI32(9); return; }
+  if (value === 'Jlpt') { w.writeI32(10); return; }
+  if (value === 'Frequency') { w.writeI32(11); return; }
+  if (value === 'Radical') { w.writeI32(12); return; }
+  if (value === 'RadicalNames') { w.writeI32(13); return; }
+  if (value === 'Unicode') { w.writeI32(14); return; }
+  if (value === 'Jis0208') { w.writeI32(15); return; }
+  if (value === 'Jis0212') { w.writeI32(16); return; }
+  if (value === 'Jis0213') { w.writeI32(17); return; }
+  if (value === 'Jis0208Refs') { w.writeI32(18); return; }
+  if (value === 'Skip') { w.writeI32(19); return; }
+  if (value === 'FourCorner') { w.writeI32(20); return; }
+  if (value === 'Deroo') { w.writeI32(21); return; }
+  if (value === 'ShDesc') { w.writeI32(22); return; }
+  if (value === 'Nelson') { w.writeI32(23); return; }
+  if (value === 'Njecd') { w.writeI32(24); return; }
+  if (value === 'Oneill') { w.writeI32(25); return; }
+  if (value === 'DerooVariant') { w.writeI32(26); return; }
+  if (value === 'ShRefs') { w.writeI32(27); return; }
+  throw new Error(`Unknown KanjiDetailKey variant: ${value}`);
+}
+function _liftKanjiDetailKey(r: UniFFIReader): KanjiDetailKey {
+  const ordinal = r.readI32();
+  if (ordinal === 1) return 'Meaning';
+  if (ordinal === 2) return 'On';
+  if (ordinal === 3) return 'Kun';
+  if (ordinal === 4) return 'Nanori';
+  if (ordinal === 5) return 'Chinese';
+  if (ordinal === 6) return 'Korean';
+  if (ordinal === 7) return 'Vietnamese';
+  if (ordinal === 8) return 'Strokes';
+  if (ordinal === 9) return 'Grade';
+  if (ordinal === 10) return 'Jlpt';
+  if (ordinal === 11) return 'Frequency';
+  if (ordinal === 12) return 'Radical';
+  if (ordinal === 13) return 'RadicalNames';
+  if (ordinal === 14) return 'Unicode';
+  if (ordinal === 15) return 'Jis0208';
+  if (ordinal === 16) return 'Jis0212';
+  if (ordinal === 17) return 'Jis0213';
+  if (ordinal === 18) return 'Jis0208Refs';
+  if (ordinal === 19) return 'Skip';
+  if (ordinal === 20) return 'FourCorner';
+  if (ordinal === 21) return 'Deroo';
+  if (ordinal === 22) return 'ShDesc';
+  if (ordinal === 23) return 'Nelson';
+  if (ordinal === 24) return 'Njecd';
+  if (ordinal === 25) return 'Oneill';
+  if (ordinal === 26) return 'DerooVariant';
+  if (ordinal === 27) return 'ShRefs';
+  throw new Error(`Unknown KanjiDetailKey ordinal: ${ordinal}`);
 }
 
 function _lowerSearchMode(w: UniFFIWriter, value: SearchMode): void {
@@ -875,6 +1111,20 @@ function _liftSearchMode(r: UniFFIReader): SearchMode {
   if (ordinal === 3) return 'Middle';
   if (ordinal === 4) return 'Exact';
   throw new Error(`Unknown SearchMode ordinal: ${ordinal}`);
+}
+
+function _lowerTagKind(w: UniFFIWriter, value: TagKind): void {
+  if (value === 'Pos') { w.writeI32(1); return; }
+  if (value === 'Field') { w.writeI32(2); return; }
+  if (value === 'Misc') { w.writeI32(3); return; }
+  throw new Error(`Unknown TagKind variant: ${value}`);
+}
+function _liftTagKind(r: UniFFIReader): TagKind {
+  const ordinal = r.readI32();
+  if (ordinal === 1) return 'Pos';
+  if (ordinal === 2) return 'Field';
+  if (ordinal === 3) return 'Misc';
+  throw new Error(`Unknown TagKind ordinal: ${ordinal}`);
 }
 
 function _lowerGradeKind(w: UniFFIWriter, value: GradeKind): void {
@@ -916,6 +1166,27 @@ function _liftErrorDictError(rb: any): DictError {
 }
 
 export namespace Dict {
+  /**
+   * Display shaping, unified from the Android (`domain/Labels.kt`),
+   * web (`labels.ts`), and Qt (`DictionaryModel::displaySenses`)
+   * copies: entity labels abbreviated with description tips, `uk`
+   * as a `kana` badge, groups kept separate (pos/field/misc) —
+   * trackside code keeps its row order.
+   */
+  export function displaySenses(entry: DictEntry): ShapedSense[] {
+    const _rb_entry = _rt.lowerIntoBuffer((w) => { _lowerDictEntry(w, entry); });
+    const _argPtr = _rt.scratchAlloc(3 * 8);
+    _rt.writeRustBufferElements(_argPtr, _rb_entry);
+    const _retPtr = _rt.scratchAlloc(7 * 8);
+    try {
+      _rt.call('uniffi_ffibuffer_dict_fn_func_display_senses', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 24);
+      const _result = _rt.liftFromBuffer(_rt.readRustBufferElements(_retPtr), (r) => { return r.readSequence((_r) => _liftShapedSense(_r)); });
+      return _result;
+    } finally {
+      _rt.scratchReset();
+    }
+  }
   /**
    * Human-readable description for a field-of-application tag
    * index. Same empty-on-invalid contract as [`pos_label`].
@@ -972,6 +1243,28 @@ export namespace Dict {
     }
   }
   /**
+   * Source version stamp of one gloss artifact on disk (`GLD1`
+   * words, `GLN1` names, or `GLK1` kokugo): the `DictIndex.version`
+   * packed at build time (JMdict/JMnedict date or mtime), read
+   * zero-copy off the mapping. Lets the Android dictionary manager
+   * show the saved version without opening a search handle.
+   * @throws {DictError}
+   */
+  export function glossVersion(path: string): string {
+    const _rb_path = _rt.lowerString(path);
+    const _argPtr = _rt.scratchAlloc(3 * 8);
+    _rt.writeRustBufferElements(_argPtr, _rb_path);
+    const _retPtr = _rt.scratchAlloc(7 * 8);
+    try {
+      _rt.call('uniffi_ffibuffer_dict_fn_func_gloss_version', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 24, (rb) => _liftErrorDictError(rb));
+      const _result = _rt.liftString(_rt.readRustBufferElements(_retPtr));
+      return _result;
+    } finally {
+      _rt.scratchReset();
+    }
+  }
+  /**
    * Grade category for display (translations stay trackside behind
    * the kind).
    */
@@ -1006,6 +1299,21 @@ export namespace Dict {
       _rt.scratchReset();
     }
   }
+  /** Common-word badge: news/ichi priorities on any form. */
+  export function isCommonWord(entry: DictEntry): boolean {
+    const _rb_entry = _rt.lowerIntoBuffer((w) => { _lowerDictEntry(w, entry); });
+    const _argPtr = _rt.scratchAlloc(3 * 8);
+    _rt.writeRustBufferElements(_argPtr, _rb_entry);
+    const _retPtr = _rt.scratchAlloc(5 * 8);
+    try {
+      _rt.call('uniffi_ffibuffer_dict_fn_func_is_common_word', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 8);
+      const _result = _rt.readBoolElement(_retPtr);
+      return _result;
+    } finally {
+      _rt.scratchReset();
+    }
+  }
   /** True when the string holds no kanji (a reading in effect). */
   export function isKana(text: string): boolean {
     const _rb_text = _rt.lowerString(text);
@@ -1014,6 +1322,24 @@ export namespace Dict {
     const _retPtr = _rt.scratchAlloc(5 * 8);
     try {
       _rt.call('uniffi_ffibuffer_dict_fn_func_is_kana', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 8);
+      const _result = _rt.readBoolElement(_retPtr);
+      return _result;
+    } finally {
+      _rt.scratchReset();
+    }
+  }
+  /**
+   * Entry is usually written in kana alone (first content sense's
+   * `uk` tag).
+   */
+  export function isKanaEntry(entry: DictEntry): boolean {
+    const _rb_entry = _rt.lowerIntoBuffer((w) => { _lowerDictEntry(w, entry); });
+    const _argPtr = _rt.scratchAlloc(3 * 8);
+    _rt.writeRustBufferElements(_argPtr, _rb_entry);
+    const _retPtr = _rt.scratchAlloc(5 * 8);
+    try {
+      _rt.call('uniffi_ffibuffer_dict_fn_func_is_kana_entry', _argPtr, _retPtr);
       _rt.checkCallStatus(_retPtr + 8);
       const _result = _rt.readBoolElement(_retPtr);
       return _result;
@@ -1051,6 +1377,86 @@ export namespace Dict {
       _rt.call('uniffi_ffibuffer_dict_fn_func_kana_to_romaji', _argPtr, _retPtr);
       _rt.checkCallStatus(_retPtr + 24);
       const _result = _rt.liftString(_rt.readRustBufferElements(_retPtr));
+      return _result;
+    } finally {
+      _rt.scratchReset();
+    }
+  }
+  /**
+   * One kanji detail table, compiled once for all frontends: stable
+   * key plus preformatted value per row in desktop dialog order.
+   * Qt maps keys to translated captions; Android/web render the
+   * English labels directly.
+   */
+  export function kanjiDetails(entry: KanjiEntry): KanjiDetailRow[] {
+    const _rb_entry = _rt.lowerIntoBuffer((w) => { _lowerKanjiEntry(w, entry); });
+    const _argPtr = _rt.scratchAlloc(3 * 8);
+    _rt.writeRustBufferElements(_argPtr, _rb_entry);
+    const _retPtr = _rt.scratchAlloc(7 * 8);
+    try {
+      _rt.call('uniffi_ffibuffer_dict_fn_func_kanji_details', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 24);
+      const _result = _rt.liftFromBuffer(_rt.readRustBufferElements(_retPtr), (r) => { return r.readSequence((_r) => _liftKanjiDetailRow(_r)); });
+      return _result;
+    } finally {
+      _rt.scratchReset();
+    }
+  }
+  /**
+   * Single date version of one kanji artifact: the latest of the
+   * KanjiVG release and kanjidic2 creation stamps (`unknown` when
+   * neither parses). Lets the Android dictionary manager show one
+   * saved version instead of two provenance strings.
+   * @throws {DictError}
+   */
+  export function kanjiVersion(path: string): string {
+    const _rb_path = _rt.lowerString(path);
+    const _argPtr = _rt.scratchAlloc(3 * 8);
+    _rt.writeRustBufferElements(_argPtr, _rb_path);
+    const _retPtr = _rt.scratchAlloc(7 * 8);
+    try {
+      _rt.call('uniffi_ffibuffer_dict_fn_func_kanji_version', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 24, (rb) => _liftErrorDictError(rb));
+      const _result = _rt.liftString(_rt.readRustBufferElements(_retPtr));
+      return _result;
+    } finally {
+      _rt.scratchReset();
+    }
+  }
+  /**
+   * Saved versions of one kanji artifact on disk, read zero-copy off
+   * the mapping (same use as [`gloss_version`]).
+   * @throws {DictError}
+   */
+  export function kanjiVersions(path: string): KanjiVersions {
+    const _rb_path = _rt.lowerString(path);
+    const _argPtr = _rt.scratchAlloc(3 * 8);
+    _rt.writeRustBufferElements(_argPtr, _rb_path);
+    const _retPtr = _rt.scratchAlloc(7 * 8);
+    try {
+      _rt.call('uniffi_ffibuffer_dict_fn_func_kanji_versions', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 24, (rb) => _liftErrorDictError(rb));
+      const _result = _rt.liftFromBuffer(_rt.readRustBufferElements(_retPtr), (r) => { return _liftKanjiVersions(r); });
+      return _result;
+    } finally {
+      _rt.scratchReset();
+    }
+  }
+  /**
+   * First index of the query in the text as UTF-16 start+length
+   * (`None` for empty/missing queries).
+   */
+  export function matchRange(text: string, query: string): MatchRange | null {
+    const _rb_text = _rt.lowerString(text);
+    const _rb_query = _rt.lowerString(query);
+    const _argPtr = _rt.scratchAlloc(6 * 8);
+    _rt.writeRustBufferElements(_argPtr, _rb_text);
+    _rt.writeRustBufferElements(_argPtr + 24, _rb_query);
+    const _retPtr = _rt.scratchAlloc(7 * 8);
+    try {
+      _rt.call('uniffi_ffibuffer_dict_fn_func_match_range', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 24);
+      const _result = _rt.liftFromBuffer(_rt.readRustBufferElements(_retPtr), (r) => { return r.readOptional((_r) => _liftMatchRange(_r)); });
       return _result;
     } finally {
       _rt.scratchReset();
@@ -1173,6 +1579,70 @@ export namespace Dict {
     const _retPtr = _rt.scratchAlloc(7 * 8);
     try {
       _rt.call('uniffi_ffibuffer_dict_fn_func_pos_label', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 24);
+      const _result = _rt.liftString(_rt.readRustBufferElements(_retPtr));
+      return _result;
+    } finally {
+      _rt.scratchReset();
+    }
+  }
+  /** Heading preferring the kanji spelling containing the query. */
+  export function preferKeb(entry: DictEntry, query: string): string {
+    const _rb_entry = _rt.lowerIntoBuffer((w) => { _lowerDictEntry(w, entry); });
+    const _rb_query = _rt.lowerString(query);
+    const _argPtr = _rt.scratchAlloc(6 * 8);
+    _rt.writeRustBufferElements(_argPtr, _rb_entry);
+    _rt.writeRustBufferElements(_argPtr + 24, _rb_query);
+    const _retPtr = _rt.scratchAlloc(7 * 8);
+    try {
+      _rt.call('uniffi_ffibuffer_dict_fn_func_prefer_keb', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 24);
+      const _result = _rt.liftString(_rt.readRustBufferElements(_retPtr));
+      return _result;
+    } finally {
+      _rt.scratchReset();
+    }
+  }
+  /** Reading preferring the spelling containing the query. */
+  export function preferReb(entry: DictEntry, query: string): string {
+    const _rb_entry = _rt.lowerIntoBuffer((w) => { _lowerDictEntry(w, entry); });
+    const _rb_query = _rt.lowerString(query);
+    const _argPtr = _rt.scratchAlloc(6 * 8);
+    _rt.writeRustBufferElements(_argPtr, _rb_entry);
+    _rt.writeRustBufferElements(_argPtr + 24, _rb_query);
+    const _retPtr = _rt.scratchAlloc(7 * 8);
+    try {
+      _rt.call('uniffi_ffibuffer_dict_fn_func_prefer_reb', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 24);
+      const _result = _rt.liftString(_rt.readRustBufferElements(_retPtr));
+      return _result;
+    } finally {
+      _rt.scratchReset();
+    }
+  }
+  /** First gloss of the first sense (row preview). */
+  export function previewGloss(entry: DictEntry): string {
+    const _rb_entry = _rt.lowerIntoBuffer((w) => { _lowerDictEntry(w, entry); });
+    const _argPtr = _rt.scratchAlloc(3 * 8);
+    _rt.writeRustBufferElements(_argPtr, _rb_entry);
+    const _retPtr = _rt.scratchAlloc(7 * 8);
+    try {
+      _rt.call('uniffi_ffibuffer_dict_fn_func_preview_gloss', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 24);
+      const _result = _rt.liftString(_rt.readRustBufferElements(_retPtr));
+      return _result;
+    } finally {
+      _rt.scratchReset();
+    }
+  }
+  /** Drop a numeric ・n tail from cross-reference queries. */
+  export function queryFor(term: string): string {
+    const _rb_term = _rt.lowerString(term);
+    const _argPtr = _rt.scratchAlloc(3 * 8);
+    _rt.writeRustBufferElements(_argPtr, _rb_term);
+    const _retPtr = _rt.scratchAlloc(7 * 8);
+    try {
+      _rt.call('uniffi_ffibuffer_dict_fn_func_query_for', _argPtr, _retPtr);
       _rt.checkCallStatus(_retPtr + 24);
       const _result = _rt.liftString(_rt.readRustBufferElements(_retPtr));
       return _result;

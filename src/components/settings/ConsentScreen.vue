@@ -1,38 +1,54 @@
 <script setup lang="ts">
-// First-run consent flow: catalog check, per-file consent screen,
-// confirmed download into IndexedDB. Emits loaded when the backend
-// is ready (a warm cache loads without asking).
+// First-run consent flow: catalog check, then the shared
+// Dictionaries manager inline (per-file status, actions, and
+// progress — no separate download screen). The bulk Download
+// required button drives the manager's own bulk fetch; entry is
+// an explicit Continue tap. Emits loaded when the backend is
+// ready (a warm cache loads without asking).
 import { computed, onMounted, ref } from 'vue';
 import {
     type CachePlan,
     checkCache,
     defaultDataBase,
-    type FilePlan,
-    type LoadProgress,
-    OPTIONAL_FILES,
     REQUIRED_FILES,
     startLoad,
 } from '../../backend/Backend.ts';
 import MaterialSpinner from '../common/MaterialSpinner.vue';
 import Button from '../ui/button/Button.vue';
 import Card from '../ui/card/Card.vue';
-import Progress from '../ui/progress/Progress.vue';
+import DictionaryManager from './DictionaryManager.vue';
 
 const emit = defineEmits<{ loaded: [] }>();
 
-type Phase = 'checking' | 'prompt' | 'downloading';
-
 const error = ref('');
-const phase = ref<Phase>('checking');
+const checking = ref(true);
 const plan = ref<CachePlan | null>(null);
-const files = ref<{ name: string; loaded: number; total: number }[]>([]);
+// Required set complete but the app stays put: entry is an
+// explicit Continue tap, never automatic after a download.
+const readyToEnter = ref(false);
 
-const requiredFiles = computed<FilePlan[]>(
-    () => plan.value?.files.filter((f) => REQUIRED_FILES.includes(f.name)) ?? [],
+const manager = ref<{
+    downloadRequired: () => Promise<void>;
+    isBusy: (name: string) => boolean;
+} | null>(null);
+const downloading = ref(false);
+// Bulk download is pointless (and hidden) once required files are
+// downloading or already in place.
+const requiredBusy = computed(
+    () => downloading.value || REQUIRED_FILES.some((n) => manager.value?.isBusy(n) ?? false),
 );
-const optionalFiles = computed<FilePlan[]>(
-    () => plan.value?.files.filter((f) => OPTIONAL_FILES.includes(f.name)) ?? [],
-);
+
+async function downloadBulk(): Promise<void> {
+    if (downloading.value) {
+        return;
+    }
+    downloading.value = true;
+    try {
+        await manager.value?.downloadRequired();
+    } finally {
+        downloading.value = false;
+    }
+}
 
 function formatMB(n: number): string {
     return n > 0 ? `≈${(n / 1048576).toFixed(0)} MB` : 'unknown size';
@@ -40,38 +56,27 @@ function formatMB(n: number): string {
 
 function runCheck(): void {
     error.value = '';
-    files.value = [];
     plan.value = null;
-    phase.value = 'checking';
+    readyToEnter.value = false;
+    checking.value = true;
     checkCache(defaultDataBase())
         .then((p) => {
-            plan.value = p;
             if (!p.needsDownload) {
-                download();
+                // Warm cache opens on its own (nothing downloaded).
+                startLoad(p)
+                    .then(() => emit('loaded'))
+                    .catch((e: unknown) => {
+                        plan.value = p;
+                        checking.value = false;
+                        error.value = e instanceof Error ? e.message : String(e);
+                    });
             } else {
-                phase.value = 'prompt';
+                plan.value = p;
+                checking.value = false;
             }
         })
         .catch((e: unknown) => {
-            phase.value = 'prompt';
-            error.value = e instanceof Error ? e.message : String(e);
-        });
-}
-
-function download(): void {
-    if (plan.value == null) {
-        return;
-    }
-    phase.value = 'downloading';
-    error.value = '';
-    const byFile = new Map<string, { name: string; loaded: number; total: number }>();
-    startLoad(plan.value, (p: LoadProgress) => {
-        byFile.set(p.file, { name: p.file, loaded: p.loaded, total: p.total });
-        files.value = [...byFile.values()];
-    })
-        .then(() => emit('loaded'))
-        .catch((e: unknown) => {
-            phase.value = 'prompt';
+            checking.value = false;
             error.value = e instanceof Error ? e.message : String(e);
         });
 }
@@ -82,32 +87,39 @@ defineExpose({ recheck: runCheck });
 </script>
 
 <template>
-    <div class="h-full flex items-center justify-center px-4">
-        <Card class="w-full max-w-xl p-6">
-            <h1 class="text-2xl mb-4">辞 Bakajiten</h1>
-            <div v-if="phase === 'checking'" class="flex items-center gap-2">
+    <div class="h-full flex items-center justify-center px-4 py-4">
+        <Card class="w-full max-w-xl p-6 max-h-[80vh] flex flex-col overflow-hidden">
+            <h1 class="text-2xl mb-4 shrink-0">辞 Bakajiten</h1>
+            <div v-if="checking" class="flex items-center gap-2">
                 <material-spinner />
                 <p class="text-muted-foreground">Checking cached dictionaries</p>
             </div>
-            <div v-else-if="phase === 'prompt' && plan != null" class="flex flex-col gap-3">
+            <div v-else-if="plan != null" class="flex flex-col gap-3 min-h-0">
                 <p>
                     Dictionaries download <b>{{ formatMB(plan.totalGz) }}</b> ({{
                         formatMB(plan.totalSize)
                     }} unpacked) and are cached on this device.
                 </p>
-                <ul class="text-sm text-muted-foreground">
-                    <li v-for="f in requiredFiles" :key="f.name">
-                        {{ f.name }} — {{ f.cached ? 'cached' : formatMB(f.gz || f.size) }}
-                    </li>
-                    <li v-for="f in optionalFiles" :key="f.name">
-                        {{ f.name }} — on demand ({{ formatMB(f.gz || f.size) }}), download it later
-                        under Settings
-                    </li>
-                </ul>
+                <div class="min-h-0 overflow-y-auto -mx-1 px-1">
+                    <dictionary-manager
+                        ref="manager"
+                        :open="!checking"
+                        :reload-on-required="false"
+                        @complete="readyToEnter = true"
+                    />
+                </div>
                 <div class="flex gap-2">
-                    <Button :disabled="plan.totalGz === 0 && plan.needsDownload" @click="download"
-                        >Download</Button
+                    <Button
+                        :disabled="
+                            readyToEnter ||
+                            requiredBusy ||
+                            (plan.totalGz === 0 && plan.needsDownload)
+                        "
+                        :loading="downloading"
+                        @click="downloadBulk"
+                        >Download required</Button
                     >
+                    <Button v-if="readyToEnter" @click="emit('loaded')">Continue</Button>
                 </div>
                 <p
                     v-if="plan.manifest == null && plan.needsDownload"
@@ -121,17 +133,6 @@ defineExpose({ recheck: runCheck });
                 <p v-if="error" class="text-destructive">{{ error }}</p>
             </div>
             <div v-else>
-                <div v-if="files.length === 0" class="flex items-center gap-2">
-                    <material-spinner />
-                    <p class="text-muted-foreground">Loading dictionaries</p>
-                </div>
-                <div v-for="f in files" :key="f.name" class="flex items-center gap-2 my-2">
-                    <span class="w-32 truncate">{{ f.name }}</span>
-                    <Progress v-model="f.loaded" :max="f.total || 1" class="flex-1" />
-                    <span class="w-12 text-right"
-                        >{{ Math.round((f.loaded / Math.max(1, f.total)) * 100) }}%</span
-                    >
-                </div>
                 <p v-if="error" class="text-destructive">{{ error }}</p>
             </div>
         </Card>

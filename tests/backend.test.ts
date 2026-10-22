@@ -4,7 +4,6 @@
 import { storeToRefs } from 'pinia';
 import { describe, expect, it } from 'vitest';
 import {
-    abbreviate,
     badgeClass,
     displaySenses,
     isCommonWord,
@@ -19,12 +18,7 @@ import {
 import { Dict } from '../src/vendor/libdict/dict.ts';
 import { loadBackend } from './fixtures.ts';
 
-describe('abbreviate', () => {
-    it('strips entity wrapping', () => {
-        expect(abbreviate('&vt;')).toBe('vt');
-        expect(abbreviate('n')).toBe('n');
-    });
-
+describe('display shaping', () => {
     it('drops numeric ・ tails from cross-references', () => {
         expect(queryFor('食べる・2')).toBe('食べる');
         expect(queryFor('食べる')).toBe('食べる');
@@ -277,10 +271,10 @@ describe('preferred forms', () => {
                 if (e == null) {
                     continue;
                 }
-                const shown = displaySenses(e);
-                for (let i = 0; i < e.senses.length; i++) {
-                    const raw = e.senses[i]!;
-                    const s = shown[i]!;
+                const shown = numberedContentSenses(e);
+                for (const row of shown) {
+                    const raw = e.senses[row.n - 1]!;
+                    const s = row.sense;
                     expect(s.restrictedKanji).toEqual(raw.stagk);
                     expect(s.restrictedReading).toEqual(raw.stagr);
                     if (raw.stagk.length > 0) {

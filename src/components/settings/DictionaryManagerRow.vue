@@ -1,46 +1,89 @@
 <script setup lang="ts">
-// One dictionary-manager grid row: name, ellided version badge,
-// cached/not-cached status badge (both tooltiped), and a caller
-// action cell. The root is display:contents so the cells stay
-// direct items of the parent grid.
-import MaterialSpinner from '../common/MaterialSpinner.vue';
-import Badge from '../ui/badge/Badge.vue';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip/index.ts';
+// One dictionary-manager row: file name headline plus the action
+// area, status/saved/latest subtitle lines, and the per-file
+// progress bar. All presentation derives from the row view-model;
+// transfers and deletes run through the emitted intents.
+import { mdiDelete } from '@mdi/js';
+import type { FileRow } from '../../state/dictionaries.ts';
+import MdiIcon from '../common/MdiIcon.vue';
+import Button from '../ui/button/Button.vue';
+import Progress from '../ui/progress/Progress.vue';
 
-defineProps<{
-    name: string;
-    /** Null while the catalog entry is still loading. */
-    version: string | null;
-    /** False while the cache plan is still loading. */
-    statusKnown: boolean;
-    cached: boolean;
-    /** Rich status detail for the badge tooltip. */
-    tip: string;
+defineProps<{ row: FileRow }>();
+const emit = defineEmits<{
+    download: [];
+    remove: [];
+    confirm: [];
+    cancel: [];
 }>();
 </script>
 
 <template>
-    <div class="contents">
-        <div class="px-2 py-1 border-t border-border whitespace-nowrap">{{ name }}</div>
-        <div class="px-2 py-1 border-t border-border">
-            <material-spinner v-if="version == null" />
-            <Tooltip v-else>
-                <TooltipTrigger as-child>
-                    <Badge variant="outline" class="max-w-36 truncate justify-start inline-block">{{
-                        version
-                    }}</Badge>
-                </TooltipTrigger>
-                <TooltipContent>{{ version }}</TooltipContent>
-            </Tooltip>
+    <div class="px-2 py-1.5 border-b border-border last:border-b-0">
+        <div class="flex items-center gap-2">
+            <span class="font-medium whitespace-nowrap">{{ row.name }}</span>
+            <span class="flex-1" />
+            <span class="inline-flex items-center gap-1 justify-end">
+                <Button
+                    v-if="row.actionEnabled"
+                    variant="outline"
+                    size="xs"
+                    :disabled="row.busy"
+                    :loading="row.loading"
+                    @click="emit('download')"
+                    >{{
+                        row.actionLabel
+                    }}</Button
+                >
+                <Button v-else variant="outline" size="xs" disabled>{{ row.actionLabel }}</Button>
+                <template v-if="row.deletable">
+                    <Button
+                        v-if="!row.confirmArmed"
+                        variant="outline"
+                        size="icon-sm"
+                        title="Delete"
+                        :disabled="row.busy"
+                        @click="emit('confirm')"
+                        ><mdi-icon :path="mdiDelete" />
+                        <span class="sr-only">Delete {{ row.name }}</span></Button
+                    >
+                    <template v-else>
+                        <Button
+                            variant="destructive"
+                            size="xs"
+                            :disabled="row.busy"
+                            :loading="row.busy"
+                            @click="emit('remove')"
+                            >Remove?</Button
+                        >
+                        <Button
+                            variant="ghost"
+                            size="xs"
+                            :disabled="row.busy"
+                            @click="emit('cancel')"
+                            >Keep</Button
+                        >
+                    </template>
+                </template>
+            </span>
         </div>
-        <div class="px-2 py-1 border-t border-border">
-            <material-spinner v-if="!statusKnown" />
-            <Badge v-else :variant="cached ? 'secondary' : 'outline'">{{
-                cached ? 'cached' : 'not cached'
-            }}</Badge>
+        <div class="text-sm text-muted-foreground">{{ row.statusWord }}</div>
+        <div v-if="row.savedLine != null" class="text-sm text-muted-foreground">
+            {{ row.savedLine }}
         </div>
-        <div class="px-2 py-1 border-t border-border text-right">
-            <slot name="action" />
+        <div v-if="row.latestLine != null" class="text-sm text-muted-foreground">
+            {{ row.latestLine }}
+        </div>
+        <div v-if="row.progress != null" class="flex items-center gap-2 mt-1">
+            <Progress
+                :model-value="row.progress.total > 0 ? Math.min(100, (row.progress.loaded / row.progress.total) * 100) : 0"
+                class="flex-1"
+            />
+            <span class="w-12 text-right text-sm text-muted-foreground"
+                >{{
+                    Math.round((row.progress.loaded / Math.max(1, row.progress.total)) * 100)
+                }}%</span
+            >
         </div>
     </div>
 </template>

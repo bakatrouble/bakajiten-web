@@ -8,6 +8,7 @@ import { useElementSize } from '@vueuse/core';
 // Resets whenever a new stroke list arrives.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { KanjiStroke } from '../../vendor/libdict/dict.ts';
+import { Recognizer } from '../../vendor/librecognizer/recognizer.ts';
 import MdiIcon from '../common/MdiIcon.vue';
 import Button from '../ui/button/Button.vue';
 
@@ -231,42 +232,11 @@ function resetPlay(): void {
     draw(null);
 }
 
-// Fractional reveal by arc length (desktop subStroke): constant
-// drawing speed regardless of point density, with an interpolated
-// tip instead of whole-point pops.
+// Fractional reveal by arc length (Rust `stroke_slice`, same as
+// the Android player): constant drawing speed regardless of point
+// density, with an interpolated tip instead of whole-point pops.
 function liveSlice(pts: { x: number; y: number }[], fraction: number): { x: number; y: number }[] {
-    const first = pts[0];
-    if (first == null || fraction <= 0) {
-        return [];
-    }
-    let total = 0;
-    const segs: number[] = [];
-    for (let i = 1; i < pts.length; i++) {
-        const a = pts[i - 1] ?? first;
-        const b = pts[i] ?? first;
-        const len = Math.hypot(b.x - a.x, b.y - a.y);
-        segs.push(len);
-        total += len;
-    }
-    if (total <= 0) {
-        return [first];
-    }
-    let target = Math.min(1, fraction) * total;
-    const out = [first];
-    for (let i = 1; i < pts.length; i++) {
-        const a = pts[i - 1] ?? first;
-        const b = pts[i] ?? first;
-        const seg = segs[i - 1] ?? 0;
-        if (target > seg) {
-            target -= seg;
-            out.push(b);
-        } else {
-            const t = seg > 0 ? target / seg : 0;
-            out.push({ x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) });
-            break;
-        }
-    }
-    return out;
+    return Recognizer.strokeSlice(pts, fraction);
 }
 
 function animateStroke(

@@ -26,18 +26,22 @@ const emit = defineEmits<{ close: []; cleared: [] }>();
 const { settings } = storeToRefs(useSettings());
 const usage = ref(-1);
 
+function refreshUsage(): void {
+    dataCache()
+        .usage()
+        .then((n) => {
+            usage.value = n;
+        })
+        .catch(() => {
+            usage.value = -1;
+        });
+}
+
 watch(
     () => props.show,
     (show) => {
         if (show) {
-            dataCache()
-                .usage()
-                .then((n) => {
-                    usage.value = n;
-                })
-                .catch(() => {
-                    usage.value = -1;
-                });
+            refreshUsage();
         }
     },
 );
@@ -66,11 +70,11 @@ const scale = computed({
 
 <template>
     <Dialog v-model:open="isOpen">
-        <DialogContent class="sm:max-w-2xl">
-            <DialogHeader>
+        <DialogContent class="sm:max-w-2xl max-h-[80vh] flex flex-col">
+            <DialogHeader class="shrink-0">
                 <DialogTitle>Settings</DialogTitle>
             </DialogHeader>
-            <div class="flex flex-col gap-4">
+            <div class="flex flex-col gap-4 min-h-0 overflow-y-auto">
                 <div class="flex flex-col gap-1">
                     <Label>Theme</Label>
                     <Select v-model="settings.theme">
@@ -124,20 +128,20 @@ const scale = computed({
                     <Label>App version</Label>
                     <span class="text-sm text-muted-foreground">v{{ APP_VERSION }}</span>
                 </div>
-                <dictionary-manager :open="props.show" />
+                <dictionary-manager :open="props.show" @changed="refreshUsage" />
                 <div class="flex flex-col gap-1">
                     <Label>Cached dictionaries</Label>
                     <div class="flex items-center gap-2">
                         <material-spinner v-if="usage < 0" />
                         <span v-else class="text-sm text-muted-foreground">{{
-                                usage === 0 ? 'empty' : `≈${(usage / 1048576).toFixed(0)} MB`
-                            }}</span>
+                            usage === 0 ? 'empty' : `≈${(usage / 1048576).toFixed(0)} MB`
+                        }}</span>
                         <Button
                             variant="outline"
                             size="sm"
                             :disabled="usage <= 0"
                             @click="clearCache"
-                        >Clear</Button
+                            >Clear</Button
                         >
                     </div>
                 </div>

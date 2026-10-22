@@ -260,4 +260,43 @@ export namespace Recognizer {
       _rt.scratchReset();
     }
   }
+  /**
+   * Fractional stroke reveal for players (arc-length + interpolated
+   * tip): constant drawing speed regardless of point density.
+   */
+  export function strokeSlice(points: StrokePoint[], fraction: number): StrokePoint[] {
+    const _rb_points = _rt.lowerIntoBuffer((w) => { w.writeSequence(points, (_w, _v) => { _lowerStrokePoint(_w, _v); }); });
+    const _argPtr = _rt.scratchAlloc(4 * 8);
+    _rt.writeRustBufferElements(_argPtr, _rb_points);
+    _rt.writeF32Element(_argPtr + 24, fraction);
+    const _retPtr = _rt.scratchAlloc(7 * 8);
+    try {
+      _rt.call('uniffi_ffibuffer_recognizer_fn_func_stroke_slice', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 24);
+      const _result = _rt.liftFromBuffer(_rt.readRustBufferElements(_retPtr), (r) => { return r.readSequence((_r) => _liftStrokePoint(_r)); });
+      return _result;
+    } finally {
+      _rt.scratchReset();
+    }
+  }
+  /**
+   * Pack timestamp (`packed_at`, unix seconds) of a `templates.bin`
+   * on disk: 16-byte header read only, no model decode. Lets the
+   * Android dictionary manager show the saved version.
+   * @throws {RecognizerError}
+   */
+  export function templatesPackedAt(path: string): bigint {
+    const _rb_path = _rt.lowerString(path);
+    const _argPtr = _rt.scratchAlloc(3 * 8);
+    _rt.writeRustBufferElements(_argPtr, _rb_path);
+    const _retPtr = _rt.scratchAlloc(5 * 8);
+    try {
+      _rt.call('uniffi_ffibuffer_recognizer_fn_func_templates_packed_at', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 8, (rb) => _liftErrorRecognizerError(rb));
+      const _result = _rt.readU64Element(_retPtr);
+      return _result;
+    } finally {
+      _rt.scratchReset();
+    }
+  }
 }
