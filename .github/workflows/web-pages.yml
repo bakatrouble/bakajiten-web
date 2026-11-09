@@ -5,8 +5,10 @@
 # root and this repo into its frontends/web slot (the same shape
 # local dev uses). Dictionary artifacts ship inside the deploy
 # (fetched from the data release into public/data/, served
-# same-origin at /bakajiten-web/data) — no CORS proxy, nothing
-# vendored into git. Data releases re-trigger this workflow via
+# same-origin at /bakajiten-web/data) — no CORS proxy for
+# dictionaries, nothing vendored into git (only the handwriting
+# pack zips go through the CORS proxy — dl.google.com sends no
+# CORS headers — sha1-verified against the table in Backend.ts). Data releases re-trigger this workflow via
 # repository_dispatch (data-updated, sent by the data repo's pack
 # job), so the hosted artifacts track the latest data release.
 #

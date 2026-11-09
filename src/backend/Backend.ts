@@ -8,6 +8,8 @@ import { decodeWire } from './gzip.ts';
 import { dataCache } from './idb.ts';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { sha256 } from '@noble/hashes/sha2.js';
+import { sha1 } from '@noble/hashes/legacy.js';
+import { unzipMember } from './zip.ts';
 
 export interface LoadProgress {
     file: string;
@@ -18,10 +20,14 @@ export interface LoadProgress {
 export interface Backend {
     dict: Dictionary;
     kanji: KanjiDictionary;
-    recognizer: Recognizer;
+    /** Handwriting engine when its model pack is installed (panel
+     *  download or a warm cache); null otherwise. Dictionaries
+     *  load without it — recognition degrades to the install
+     *  prompt, never to a fetch. */
+    recognizer: Recognizer | null;
 }
 
-export const REQUIRED_FILES = ['jmdict.bin', 'kanji.bin', 'templates.bin'];
+export const REQUIRED_FILES = ['jmdict.bin', 'kanji.bin'];
 export const OPTIONAL_FILES = ['jmnedict.bin', 'kokugo.bin'];
 const MANIFEST_KEY = '__manifest';
 
@@ -298,8 +304,7 @@ export async function loadPlan(
     );
     const words = blobs.get('jmdict.bin');
     const kanjiBytes = blobs.get('kanji.bin');
-    const templates = blobs.get('templates.bin');
-    if (words == null || kanjiBytes == null || templates == null) {
+    if (words == null || kanjiBytes == null) {
         throw new Error('dictionary files missing from plan');
     }
     let constructed: Backend;
@@ -307,7 +312,10 @@ export async function loadPlan(
         constructed = {
             dict: Dictionary.create(words),
             kanji: KanjiDictionary.create(kanjiBytes),
-            recognizer: Recognizer.create(templates),
+            // The handwriting model loads on demand through
+            // openCachedRecognizer/downloadRecognizerPack below —
+            // never as part of the dictionary set.
+            recognizer: null,
         };
     } catch (e) {
         await Promise.all(names.map((n) => dataCache().remove(n)));
@@ -334,6 +342,208 @@ export async function loadScopeFile(
         return null;
     }
     return fetchFile(plan, name, onProgress);
+}
+
+/** Handwriting model pack source: Google's `ja` digital-ink
+ *  set (table mirrored from the Qt `ModelPacks`: pack names,
+ *  dl.google.com URLs, AAR sha1s and sizes). dl.google.com sends
+ *  no CORS headers, so the browser fetches through the CORS proxy
+ *  below (`X-Target-URL` header); the proxy streams bytes
+ *  unmodified and sha1 + sizes verify them. Dictionary artifacts
+ *  stay same-origin — only these two zips use the proxy. */
+export const RECOGNIZER_PROXY = 'https://cors.bakatrouble.me/';
+
+export interface RecognizerPack {
+    /** Converted member key (order feeds `convertModel`). */
+    member: string;
+    /** Zip download URL (sent as the proxy's `X-Target-URL`). */
+    url: string;
+    /** Lowercase sha1 of the zip wire bytes. */
+    sha1: string;
+    /** Zip wire bytes (download total + size check). */
+    zipSize: number;
+    /** Wanted member: entry name ends with this. */
+    memberSuffix: string;
+    /** Extracted member bytes (artifact size check). */
+    artifactSize: number;
+}
+
+export const RECOGNIZER_PACKS: RecognizerPack[] = [
+    {
+        member: 'ja.tflite',
+        url: 'https://dl.google.com/handwriting/models/lstm.japanese.tflite_5x144.tflite.20190523.zip',
+        sha1: 'fc5c5f0a999635dfabb9bebb7a4834cc1b7f075d',
+        zipSize: 3132494,
+        memberSuffix: '.tflite',
+        artifactSize: 4186912,
+    },
+    {
+        member: 'ja.recospec',
+        url: 'https://dl.google.com/handwriting/models/qrnn.ja.reco_20191217.fst_20190322.recospec.zip',
+        sha1: '0cc70076bfeaee959e558ca55f0ae079f2fe5f25',
+        zipSize: 46002,
+        memberSuffix: '.recospec.local',
+        artifactSize: 94195,
+    },
+];
+
+/** Member keys in `convertModel` order (progress labels and the
+ *  convert call both follow the table above). */
+export const RECOGNIZER_PACK_FILES = RECOGNIZER_PACKS.map((p) => p.member);
+/** IndexedDB key for the converted runtime bundle: one
+ *  conversion per pack update, every later load decodes straight
+ *  from it (offline included). */
+export const RECOGNIZER_BUNDLE_KEY = 'ja.safetensors';
+/** IndexedDB key for the pack versions the bundle converts. */
+export const RECOGNIZER_VERSION_KEY = 'ja.safetensors.version';
+
+/** Proxy request for a pack zip: the path is ignored, the full
+ *  target rides the header (cors-proxy usage). A same-origin
+ *  fetch would fail: dl.google.com sends no CORS headers. */
+export function proxyRequest(target: string, proxyBase = RECOGNIZER_PROXY): DataRequest {
+    return { url: proxyBase, headers: { 'X-Target-URL': target } };
+}
+
+/** Lowercase hex sha1 (zip verification; WebCrypto is async-only
+ *  and absent on plain-HTTP LAN, so audited sync code like the
+ *  sha256 fallback). */
+export function sha1Hex(input: Uint8Array): string {
+    return bytesToHex(sha1(input));
+}
+
+/// Pack-table identity the cached bundle converts (changes only
+/// when the table above changes).
+function packStamp(): string {
+    return RECOGNIZER_PACKS.map((p) => `${p.member}@${p.sha1}`).join(',');
+}
+
+/// Fetch one pack zip through the proxy with the table total as
+/// the progress denominator (the proxy streams chunked, so the
+/// wire rarely carries a length), then verify size + sha1.
+async function fetchPackZip(
+    pack: RecognizerPack,
+    onProgress: (p: LoadProgress) => void,
+): Promise<Uint8Array> {
+    const req = proxyRequest(pack.url);
+    const resp = await fetch(req.url, { headers: req.headers });
+    if (!resp.ok || resp.body == null) {
+        throw new Error(`fetch ${pack.member}: ${resp.status}`);
+    }
+    const chunks: Uint8Array[] = [];
+    let loaded = 0;
+    const reader = resp.body.getReader();
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+            break;
+        }
+        chunks.push(value);
+        loaded += value.length;
+        onProgress({ file: pack.member, loaded, total: pack.zipSize });
+    }
+    const out = new Uint8Array(loaded);
+    let off = 0;
+    for (const c of chunks) {
+        out.set(c, off);
+        off += c.length;
+    }
+    if (out.length !== pack.zipSize) {
+        throw new Error(
+            `${pack.member}: got ${out.length} bytes, pack says ${pack.zipSize}`,
+        );
+    }
+    if (sha1Hex(out) !== pack.sha1) {
+        throw new Error(`${pack.member}: sha1 mismatch`);
+    }
+    return out;
+}
+
+export interface RecognizerPackStatus {
+    /** Pack table compiled in with its proxy source. */
+    published: boolean;
+    /** Converted bundle cached and stamped from this table. */
+    ready: boolean;
+    /** Saved-bundle line for the panel (null when none cached). */
+    savedLine: string | null;
+    /** Catalog line for the panel. */
+    latestLine: string | null;
+}
+
+function packVersionLine(): string {
+    const total = RECOGNIZER_PACKS.reduce((t, p) => t + p.zipSize, 0);
+    return `Latest · ≈${(total / 1048576).toFixed(0)} MB`;
+}
+
+/** Handwriting model state for the panel: table presence plus
+ *  cache warmth. No network: the pack source is compiled in, the
+ *  bundle check is a cache read. */
+export async function recognizerPackStatus(): Promise<RecognizerPackStatus> {
+    const bundle = await dataCache().get(RECOGNIZER_BUNDLE_KEY);
+    const stamp = await dataCache().get(RECOGNIZER_VERSION_KEY);
+    const stampText = stamp == null ? null : new TextDecoder().decode(stamp);
+    const ready = bundle != null && stampText === packStamp();
+    return {
+        published: true,
+        ready,
+        savedLine:
+            bundle != null
+                ? `Saved on this device · ≈${(bundle.length / 1048576).toFixed(0)} MB`
+                : null,
+        latestLine: packVersionLine(),
+    };
+}
+
+/// Download the handwriting pack (explicit tap only — the app
+/// never fetches blobs uninvited): zips via the proxy, sha1 +
+/// size verified, wanted members unzipped and size-checked,
+/// converted once, bundle cached stamped with the table.
+/// Returns a ready recognizer.
+export async function downloadRecognizerPack(
+    onProgress: (p: LoadProgress) => void = () => {},
+): Promise<Recognizer> {
+    const members = await Promise.all(
+        RECOGNIZER_PACKS.map(async (pack) => {
+            const zip = await fetchPackZip(pack, onProgress);
+            const raw = await unzipMember(zip, pack.memberSuffix);
+            if (raw.length !== pack.artifactSize) {
+                throw new Error(
+                    `${pack.member}: got ${raw.length} bytes, pack says ${pack.artifactSize}`,
+                );
+            }
+            return raw;
+        }),
+    );
+    const [tflite, recospec] = members;
+    if (tflite == null || recospec == null) {
+        throw new Error('handwriting pack download failed');
+    }
+    const bundle = Recognizer.convertModel(tflite, recospec);
+    await dataCache().set(RECOGNIZER_BUNDLE_KEY, bundle.safetensors);
+    await dataCache().set(RECOGNIZER_VERSION_KEY, new TextEncoder().encode(packStamp()));
+    return Recognizer.create(bundle.safetensors);
+}
+
+/// Decode the cached bundle with no network (panel open, kanji
+/// dialog, offline included). Null when nothing is cached, the
+/// table moved on (stale: the panel offers the update), or the
+/// bytes fail to decode (evicted, so retry re-downloads clean).
+export async function openCachedRecognizer(): Promise<Recognizer | null> {
+    const bytes = await dataCache().get(RECOGNIZER_BUNDLE_KEY);
+    if (bytes == null) {
+        return null;
+    }
+    const stamp = await dataCache().get(RECOGNIZER_VERSION_KEY);
+    const stampText = stamp == null ? null : new TextDecoder().decode(stamp);
+    if (stampText !== packStamp()) {
+        return null;
+    }
+    try {
+        return Recognizer.create(bytes);
+    } catch {
+        await dataCache().remove(RECOGNIZER_BUNDLE_KEY);
+        await dataCache().remove(RECOGNIZER_VERSION_KEY);
+        return null;
+    }
 }
 
 let ready: Promise<Backend> | null = null;

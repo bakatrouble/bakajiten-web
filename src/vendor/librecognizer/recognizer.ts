@@ -6,7 +6,7 @@ const _rt = await UniffiRuntime.load(new URL('./recognizer.wasm', import.meta.ur
 
 export type RecognizerErrorVariant =
   | { tag: 'InvalidModel', message: string }
-  | { tag: 'EmptyBank' };
+  | { tag: 'RecognitionFailed', message: string };
 
 /**
  * Failures surfaced across the FFI boundary.
@@ -22,45 +22,45 @@ export class RecognizerError extends Error {
     const msg = Object.entries(fields).map(([k, v]) => `${k}=${fmt(v)}`).join(', ');
     super(msg ? `${tag}: ${msg}` : tag, { cause: variant });
   }
-  /** Model bytes fail to decode (see `model::templates_from_bytes`). */
+  /** Pack or bundle bytes fail to decode. */
   static InvalidModel(message: string): RecognizerError { return new RecognizerError({ tag: 'InvalidModel', message }); }
-  /** The model decoded but holds zero templates. */
-  static EmptyBank(): RecognizerError { return new RecognizerError({ tag: 'EmptyBank' }); }
+  /** Decoding failed. */
+  static RecognitionFailed(message: string): RecognizerError { return new RecognizerError({ tag: 'RecognitionFailed', message }); }
 }
 
 /**
- * One ranked candidate: the character plus its fused distance.
- * Lower is better; absolute values are meaningless across inputs —
- * only ordering matters.
+ * One hypothesis: the decoded text plus its score. Beam scores
+ * are costs (lower ranks first); the greedy score is a mean
+ * frame confidence (higher is surer). Order is what matters —
+ * both lists arrive best first.
  */
 export interface Candidate {
-  /**
-   * The matched character, as a single-char string (UniFFI has no
-   * `char` type).
-   */
-  character: string;
-  distance: bigint;
-  /**
-   * Whether the template is hiragana/katakana (same predicate as
-   * [`KanaFilter`]: U+3040–U+30FF). Lets foreign callers style
-   * kana hits without re-deriving script ranges.
-   */
-  isKana: boolean;
+  text: string;
+  score: number;
 }
 
 /**
- * One pen point in 0..255 pen coords (matches `Point`, which UniFFI
- * cannot export directly — tuple structs have no record mapping).
+ * Converted runtime bundle: the dequantized net plus the JSON
+ * vocab the decoder rebuilds its class table from.
+ */
+export interface ConvertedBundle {
+  safetensors: Uint8Array;
+}
+
+/**
+ * One pen point in 0..255 pen coords. Timestamps are not carried:
+ * conversion synthesizes 20ms steps for the whole ink (the JNI
+ * fallback the engine was validated against).
  */
 export interface StrokePoint {
   x: number;
   y: number;
 }
 
-/** First-character script (see the Qt `CandidateListDelegate::Script`). */
-export type Script = 'Hiragana' | 'Katakana' | 'Other';
-
-/** Opaque recognizer: a template bank built once from model bytes. */
+/**
+ * Opaque recognizer: the converted Japanese bundle (safetensors
+ * net with the vocab in its header metadata).
+ */
 export class Recognizer {
   /** @internal */
   readonly _handle: bigint;
@@ -75,15 +75,15 @@ export class Recognizer {
   /** @internal */
   static _fromHandle(handle: bigint): Recognizer { return new Recognizer(handle); }
   /**
-   * Build a recognizer from `KTT1` template-bank bytes (see
-   * `model`). Share the returned handle across threads and
-   * queries.
+   * Build a recognizer from converted bundle contents: the
+   * safetensors net (vocab rides its header metadata). Share
+   * the returned handle across threads and queries.
    * @throws {RecognizerError}
    */
-  static create(modelBytes: Uint8Array): Recognizer {
-    const _rb_modelBytes = _rt.lowerIntoBuffer((w) => { w.writeBytes(modelBytes); });
+  static create(safetensorsBytes: Uint8Array): Recognizer {
+    const _rb_safetensorsBytes = _rt.lowerIntoBuffer((w) => { w.writeBytes(safetensorsBytes); });
     const _argPtr = _rt.scratchAlloc(3 * 8);
-    _rt.writeRustBufferElements(_argPtr, _rb_modelBytes);
+    _rt.writeRustBufferElements(_argPtr, _rb_safetensorsBytes);
     const _retPtr = _rt.scratchAlloc(5 * 8);
     try {
       _rt.call('uniffi_ffibuffer_recognizer_fn_constructor_recognizer_new', _argPtr, _retPtr);
@@ -94,42 +94,44 @@ export class Recognizer {
       _rt.scratchReset();
     }
   }
-  /** Pack timestamp of the loaded bank (unix seconds). */
-  modelPackedAt(): bigint {
+  /**
+   * The engine ships no word-level language model (the compact
+   * FST is a proprietary format): kept so callers can branch on
+   * it, always false.
+   */
+  hasLanguageModel(): boolean {
     this._assertLive();
     const _clonedHandle = _rt.cloneObjectHandle('uniffi_recognizer_fn_clone_recognizer', this._handle);
     const _argPtr = _rt.scratchAlloc(1 * 8);
     _rt.writeHandleElement(_argPtr, _clonedHandle);
     const _retPtr = _rt.scratchAlloc(5 * 8);
     try {
-      _rt.call('uniffi_ffibuffer_recognizer_fn_method_recognizer_model_packed_at', _argPtr, _retPtr);
+      _rt.call('uniffi_ffibuffer_recognizer_fn_method_recognizer_has_language_model', _argPtr, _retPtr);
       _rt.checkCallStatus(_retPtr + 8);
-      const _result = _rt.readU64Element(_retPtr);
+      const _result = _rt.readBoolElement(_retPtr);
       return _result;
     } finally {
       _rt.scratchReset();
     }
   }
   /**
-   * Rank candidates for raw pen strokes: one inner vec per stroke,
-   * in 0..255 pen coords. Returns the `top_k` best (lower distance
-   * first); `top_k = 0` returns the whole bank, sorted.
-   * `include_kana` selects kanji+kana (`true`) or kanji-only
-   * (`false`) matching.
+   * Decode pen strokes: one inner vec per stroke, in 0..255 pen
+   * coords. Returns the `nbest` best hypotheses, best first.
+   * Empty ink decodes to no candidates.
+   * @throws {RecognizerError}
    */
-  recognize(strokes: StrokePoint[][], topK: number, includeKana: boolean): Candidate[] {
+  recognize(strokes: StrokePoint[][], nbest: number): Candidate[] {
     this._assertLive();
     const _clonedHandle = _rt.cloneObjectHandle('uniffi_recognizer_fn_clone_recognizer', this._handle);
     const _rb_strokes = _rt.lowerIntoBuffer((w) => { w.writeSequence(strokes, (_w, _v) => { _w.writeSequence(_v, (_w, _v) => { _lowerStrokePoint(_w, _v); }); }); });
-    const _argPtr = _rt.scratchAlloc(6 * 8);
+    const _argPtr = _rt.scratchAlloc(5 * 8);
     _rt.writeHandleElement(_argPtr, _clonedHandle);
     _rt.writeRustBufferElements(_argPtr + 8, _rb_strokes);
-    _rt.writeU32Element(_argPtr + 32, topK);
-    _rt.writeBoolElement(_argPtr + 40, includeKana);
+    _rt.writeU32Element(_argPtr + 32, nbest);
     const _retPtr = _rt.scratchAlloc(7 * 8);
     try {
       _rt.call('uniffi_ffibuffer_recognizer_fn_method_recognizer_recognize', _argPtr, _retPtr);
-      _rt.checkCallStatus(_retPtr + 24);
+      _rt.checkCallStatus(_retPtr + 24, (rb) => _liftErrorRecognizerError(rb));
       const _result = _rt.liftFromBuffer(_rt.readRustBufferElements(_retPtr), (r) => { return r.readSequence((_r) => _liftCandidate(_r)); });
       return _result;
     } finally {
@@ -137,45 +139,21 @@ export class Recognizer {
     }
   }
   /**
-   * Shape-similar kanji for drawn strokes (the kanji dialog's
-   * Similar strip): kanji-only match like `recognize` with
-   * `include_kana = false`, the `exclude` character dropped,
-   * capped at `top_k` shown (`top_k = 0` shows nothing — unlike
-   * `recognize`, where it means the whole bank). Self exclusion
-   * compares text (not rank — self usually leads, but the filter
-   * holds regardless). Empty without strokes.
+   * Best-path decode, ignoring the language model entirely.
+   * @throws {RecognizerError}
    */
-  similar(strokes: StrokePoint[][], exclude: string, topK: number): Candidate[] {
+  recognizeGreedy(strokes: StrokePoint[][]): Candidate {
     this._assertLive();
     const _clonedHandle = _rt.cloneObjectHandle('uniffi_recognizer_fn_clone_recognizer', this._handle);
     const _rb_strokes = _rt.lowerIntoBuffer((w) => { w.writeSequence(strokes, (_w, _v) => { _w.writeSequence(_v, (_w, _v) => { _lowerStrokePoint(_w, _v); }); }); });
-    const _rb_exclude = _rt.lowerString(exclude);
-    const _argPtr = _rt.scratchAlloc(8 * 8);
+    const _argPtr = _rt.scratchAlloc(4 * 8);
     _rt.writeHandleElement(_argPtr, _clonedHandle);
     _rt.writeRustBufferElements(_argPtr + 8, _rb_strokes);
-    _rt.writeRustBufferElements(_argPtr + 32, _rb_exclude);
-    _rt.writeU32Element(_argPtr + 56, topK);
     const _retPtr = _rt.scratchAlloc(7 * 8);
     try {
-      _rt.call('uniffi_ffibuffer_recognizer_fn_method_recognizer_similar', _argPtr, _retPtr);
-      _rt.checkCallStatus(_retPtr + 24);
-      const _result = _rt.liftFromBuffer(_rt.readRustBufferElements(_retPtr), (r) => { return r.readSequence((_r) => _liftCandidate(_r)); });
-      return _result;
-    } finally {
-      _rt.scratchReset();
-    }
-  }
-  /** Template (bank) count. */
-  templateCount(): bigint {
-    this._assertLive();
-    const _clonedHandle = _rt.cloneObjectHandle('uniffi_recognizer_fn_clone_recognizer', this._handle);
-    const _argPtr = _rt.scratchAlloc(1 * 8);
-    _rt.writeHandleElement(_argPtr, _clonedHandle);
-    const _retPtr = _rt.scratchAlloc(5 * 8);
-    try {
-      _rt.call('uniffi_ffibuffer_recognizer_fn_method_recognizer_template_count', _argPtr, _retPtr);
-      _rt.checkCallStatus(_retPtr + 8);
-      const _result = _rt.readU64Element(_retPtr);
+      _rt.call('uniffi_ffibuffer_recognizer_fn_method_recognizer_recognize_greedy', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 24, (rb) => _liftErrorRecognizerError(rb));
+      const _result = _rt.liftFromBuffer(_rt.readRustBufferElements(_retPtr), (r) => { return _liftCandidate(r); });
       return _result;
     } finally {
       _rt.scratchReset();
@@ -194,15 +172,22 @@ if (Symbol.dispose) (Recognizer as any).prototype[Symbol.dispose] = Recognizer.p
 // --- Serialization helpers ---
 
 function _lowerCandidate(w: UniFFIWriter, value: Candidate): void {
-  w.writeString(value.character);
-  w.writeU64(value.distance);
-  w.writeBool(value.isKana);
+  w.writeString(value.text);
+  w.writeF64(value.score);
 }
 function _liftCandidate(r: UniFFIReader): Candidate {
   return {
-    character: r.readString(),
-    distance: r.readU64(),
-    isKana: r.readBool(),
+    text: r.readString(),
+    score: r.readF64(),
+  };
+}
+
+function _lowerConvertedBundle(w: UniFFIWriter, value: ConvertedBundle): void {
+  w.writeBytes(value.safetensors);
+}
+function _liftConvertedBundle(r: UniFFIReader): ConvertedBundle {
+  return {
+    safetensors: r.readBytes(),
   };
 }
 
@@ -217,20 +202,6 @@ function _liftStrokePoint(r: UniFFIReader): StrokePoint {
   };
 }
 
-function _lowerScript(w: UniFFIWriter, value: Script): void {
-  if (value === 'Hiragana') { w.writeI32(1); return; }
-  if (value === 'Katakana') { w.writeI32(2); return; }
-  if (value === 'Other') { w.writeI32(3); return; }
-  throw new Error(`Unknown Script variant: ${value}`);
-}
-function _liftScript(r: UniFFIReader): Script {
-  const ordinal = r.readI32();
-  if (ordinal === 1) return 'Hiragana';
-  if (ordinal === 2) return 'Katakana';
-  if (ordinal === 3) return 'Other';
-  throw new Error(`Unknown Script ordinal: ${ordinal}`);
-}
-
 function _liftErrorRecognizerError(rb: any): RecognizerError {
   return _rt.liftFromBuffer(rb, (r) => {
     const ordinal = r.readI32();
@@ -238,23 +209,31 @@ function _liftErrorRecognizerError(rb: any): RecognizerError {
       return new RecognizerError({ tag: 'InvalidModel', message: r.readString() });
     }
     if (ordinal === 2) {
-      return new RecognizerError({ tag: 'EmptyBank' });
+      return new RecognizerError({ tag: 'RecognitionFailed', message: r.readString() });
     }
     throw new Error(`Unknown RecognizerError ordinal: ${ordinal}`);
   });
 }
 
 export namespace Recognizer {
-  /** Script of the first character (empty reads as other). */
-  export function scriptOf(text: string): Script {
-    const _rb_text = _rt.lowerString(text);
-    const _argPtr = _rt.scratchAlloc(3 * 8);
-    _rt.writeRustBufferElements(_argPtr, _rb_text);
+  /**
+   * Convert download packs into the runtime bundle: the `.tflite`
+   * net plus the recospec protobuf become one `network.safetensors`.
+   * Runs once per pack update; the Qt download path calls it after
+   * unzipping, before installing.
+   * @throws {RecognizerError}
+   */
+  export function convertModel(tfliteBytes: Uint8Array, recospecBytes: Uint8Array): ConvertedBundle {
+    const _rb_tfliteBytes = _rt.lowerIntoBuffer((w) => { w.writeBytes(tfliteBytes); });
+    const _rb_recospecBytes = _rt.lowerIntoBuffer((w) => { w.writeBytes(recospecBytes); });
+    const _argPtr = _rt.scratchAlloc(6 * 8);
+    _rt.writeRustBufferElements(_argPtr, _rb_tfliteBytes);
+    _rt.writeRustBufferElements(_argPtr + 24, _rb_recospecBytes);
     const _retPtr = _rt.scratchAlloc(7 * 8);
     try {
-      _rt.call('uniffi_ffibuffer_recognizer_fn_func_script_of', _argPtr, _retPtr);
-      _rt.checkCallStatus(_retPtr + 24);
-      const _result = _rt.liftFromBuffer(_rt.readRustBufferElements(_retPtr), (r) => { return _liftScript(r); });
+      _rt.call('uniffi_ffibuffer_recognizer_fn_func_convert_model', _argPtr, _retPtr);
+      _rt.checkCallStatus(_retPtr + 24, (rb) => _liftErrorRecognizerError(rb));
+      const _result = _rt.liftFromBuffer(_rt.readRustBufferElements(_retPtr), (r) => { return _liftConvertedBundle(r); });
       return _result;
     } finally {
       _rt.scratchReset();
@@ -274,26 +253,6 @@ export namespace Recognizer {
       _rt.call('uniffi_ffibuffer_recognizer_fn_func_stroke_slice', _argPtr, _retPtr);
       _rt.checkCallStatus(_retPtr + 24);
       const _result = _rt.liftFromBuffer(_rt.readRustBufferElements(_retPtr), (r) => { return r.readSequence((_r) => _liftStrokePoint(_r)); });
-      return _result;
-    } finally {
-      _rt.scratchReset();
-    }
-  }
-  /**
-   * Pack timestamp (`packed_at`, unix seconds) of a `templates.bin`
-   * on disk: 16-byte header read only, no model decode. Lets the
-   * Android dictionary manager show the saved version.
-   * @throws {RecognizerError}
-   */
-  export function templatesPackedAt(path: string): bigint {
-    const _rb_path = _rt.lowerString(path);
-    const _argPtr = _rt.scratchAlloc(3 * 8);
-    _rt.writeRustBufferElements(_argPtr, _rb_path);
-    const _retPtr = _rt.scratchAlloc(5 * 8);
-    try {
-      _rt.call('uniffi_ffibuffer_recognizer_fn_func_templates_packed_at', _argPtr, _retPtr);
-      _rt.checkCallStatus(_retPtr + 8, (rb) => _liftErrorRecognizerError(rb));
-      const _result = _rt.readU64Element(_retPtr);
       return _result;
     } finally {
       _rt.scratchReset();

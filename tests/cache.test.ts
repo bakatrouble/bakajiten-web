@@ -63,14 +63,16 @@ describe('plan flow', () => {
         await loadPlan(first, (p) => {
             seen.push(p.file);
         });
-        expect(new Set(seen)).toEqual(new Set(['jmdict.bin', 'kanji.bin', 'templates.bin']));
+        expect(new Set(seen)).toEqual(new Set(['jmdict.bin', 'kanji.bin']));
         const second = await checkCache(DATA_URL);
         expect(second.needsDownload).toBe(false);
         expect(second.totalGz).toBe(0);
-        // Cached load constructs a working backend without fetching.
+        // Cached load constructs a working backend without fetching —
+        // and no handwriting engine (the model installs on demand).
         const b = await loadPlan(second, () => {
             throw new Error('should not download');
         });
         expect(b.dict.search('たべる', 'Exact', 5)[0]?.heading).toBe('食べる');
+        expect(b.recognizer).toBeNull();
     });
 });

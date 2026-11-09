@@ -8,6 +8,7 @@ import { XIcon } from '@lucide/vue';
 import { storeToRefs } from 'pinia';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { backend } from '../../backend/Backend.ts';
+import { similarChars } from '../../state/recognizer.ts';
 import { useSearch } from '../../state/search.ts';
 import { useSettings } from '../../state/settings.ts';
 import { useDialogGeometry } from '../../ui/dialogGeometry.ts';
@@ -79,7 +80,10 @@ watch(
         strokeList.value = b.kanji.strokes(ch);
         partOf.value = b.kanji.containing(ch);
         const strokes = strokeList.value.map((s) => s.points.map((p) => ({ x: p.x, y: p.y })));
-        similar.value = b.recognizer.similar(strokes, ch, 12).map((c) => c.character);
+        // The model is optional: without it the Similar strip
+        // stays empty instead of blocking the dialog.
+        similar.value =
+            b.recognizer == null ? [] : similarChars(b.recognizer, strokes, ch, 12);
     },
     { immediate: true },
 );
@@ -108,7 +112,7 @@ function selectWord(i: number): void {
 }
 
 function toItems(chars: string[]): StripItem[] {
-    return chars.map((character) => ({ character, distance: 0, isKana: false }));
+    return chars.map((text) => ({ text }));
 }
 
 const { box, startDrag, startResize, adjustHeight } = useDialogGeometry({ w: 640, h: 560, y: 76 });
@@ -216,6 +220,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey));
                     :rows="wordRows"
                     :selected="wordSelected"
                     :query-text="props.ch ?? ''"
+                    :mode="'Middle'"
                     :on-select="selectWord"
                     @tip="(ch, x, y) => emit('tip', ch, x, y)"
                     @tip-hide="emit('tipHide')"

@@ -35,7 +35,7 @@ const emit = defineEmits<{
 }>();
 
 const kanjiHover = useKanjiHover();
-const { query } = storeToRefs(useSearch());
+const { query, mode } = storeToRefs(useSearch());
 const onMove = (e: MouseEvent): void => kanjiHover.onMove(e, emit);
 const onLeave = (): void => kanjiHover.onLeave(emit);
 const onDoubleClick = (e: MouseEvent): void => kanjiHover.onDoubleClick(e, emit);
@@ -44,7 +44,7 @@ const kanaOnly = computed(() => props.entry != null && isKanaEntry(props.entry))
 // Loading statuses end in …: show a spinner instead of the dots.
 const isLoading = computed(() => props.status.endsWith('…'));
 const loadingText = computed(() => (isLoading.value ? props.status.slice(0, -1) : props.status));
-const heading = computed(() => (props.entry == null ? '' : preferKeb(props.entry, query.value)));
+const heading = computed(() => (props.entry == null ? '' : preferKeb(props.entry, query.value, mode.value)));
 
 // Numbered, content-bearing senses (shared with the results
 // table so both number identically).
@@ -57,7 +57,7 @@ const readingLine = computed(() => {
         return '';
     }
     const settings = storeToRefs(useSettings()).settings;
-    const reading = preferReb(props.entry, query.value);
+    const reading = preferReb(props.entry, query.value, mode.value);
     const shown =
         settings.value.romaji === 'Hepburn' || settings.value.romaji === 'Kunrei'
             ? Dict.kanaToRomaji(reading, settings.value.romaji)
@@ -77,7 +77,7 @@ const otherReadings = computed(() => {
     if (props.entry == null) {
         return [];
     }
-    const shown = preferReb(props.entry, query.value);
+    const shown = preferReb(props.entry, query.value, mode.value);
     return [...new Set(props.entry.readings.map((r) => r.reb))].filter((r) => r !== shown);
 });
 </script>

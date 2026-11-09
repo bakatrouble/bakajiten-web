@@ -12,7 +12,6 @@ export interface Settings {
     theme: Theme;
     scale: number;
     romaji: RomajiStyle;
-    kanaCandidates: boolean;
     /** Search bar dock: top (default) or bottom. */
     searchBar: SearchBarPosition;
     /** Results pane width in percent (null = default 46). */
@@ -65,7 +64,6 @@ function defaults(): Settings {
         theme: 'auto',
         scale: 100,
         romaji: 'Hepburn',
-        kanaCandidates: true,
         searchBar: 'top',
         resultsPct: null,
         panelWidthPx: null,
@@ -84,7 +82,6 @@ function sanitize(raw: unknown): Settings {
             theme: p.theme === 'light' || p.theme === 'dark' ? p.theme : 'auto',
             scale: clampScale(p.scale),
             romaji: p.romaji === 'Kana' || p.romaji === 'Kunrei' ? p.romaji : 'Hepburn',
-            kanaCandidates: p.kanaCandidates ?? true,
             searchBar: p.searchBar === 'bottom' ? 'bottom' : 'top',
             resultsPct: clampPct(p.resultsPct),
             panelWidthPx: clampPanel(p.panelWidthPx),

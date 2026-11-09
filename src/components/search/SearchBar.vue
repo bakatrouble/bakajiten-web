@@ -72,10 +72,20 @@ const scopeModel = computed({
     },
 });
 
-function maybeSearch(): void {
-    // Pending morae stay display-only until they resolve.
-    if (!field.pending.value) {
+function maybeSearch(cursor: number): void {
+    // Pending morae stay display-only until they resolve (Qt parity:
+    // the run at the cursor gates, not the whole buffer).
+    if (!field.pendingAt(cursor)) {
         searchDebounced(field.searchText.value);
+    }
+}
+
+function onPointerDown(e: MouseEvent): void {
+    // Composition modal (Qt parity): clicks must not move the cursor
+    // or start selections while the run at the cursor is pending.
+    const el = nativeInput();
+    if (field.pendingAt(el?.selectionStart ?? field.raw.value.length)) {
+        e.preventDefault();
     }
 }
 
@@ -85,7 +95,13 @@ function onKey(e: KeyboardEvent): void {
     if (e.ctrlKey || e.metaKey || e.altKey) {
         return;
     }
+    const el = nativeInput();
     if (e.key === 'Enter') {
+        // Modal while pending (desktop swallows Return mid-mora).
+        if (field.pendingAt(el?.selectionStart ?? field.raw.value.length)) {
+            e.preventDefault();
+            return;
+        }
         e.preventDefault();
         field.commit();
         return;
@@ -96,8 +112,9 @@ function onKey(e: KeyboardEvent): void {
         return;
     }
     // Selection replace runs before conversion: spliced keys land
-    // where the selection was (cursor restored after render).
-    const el = nativeInput();
+    // where the selection was (cursor restored after render). While
+    // pending, or for keys the field doesn't convert, fall through
+    // to native instead of re-typing at the cursor.
     if (
         el?.selectionStart != null &&
         el.selectionEnd != null &&
@@ -110,13 +127,19 @@ function onKey(e: KeyboardEvent): void {
                 el.focus();
                 el.setSelectionRange(at, at);
             });
-            maybeSearch();
-            return;
+            maybeSearch(at);
         }
+        return;
     }
-    if (field.typeKey(e.key)) {
+    const cursor = el?.selectionStart ?? field.raw.value.length;
+    const at = field.typeKey(e.key, cursor);
+    if (at != null) {
         e.preventDefault();
-        maybeSearch();
+        nextTick(() => {
+            el?.focus();
+            el?.setSelectionRange(at, at);
+        });
+        maybeSearch(at);
     }
     // Printable input elsewhere re-targets here (type-to-search).
 }
@@ -125,10 +148,13 @@ function onInput(value: string | number): void {
     // Paste / IME / mobile: take the field text as the new buffer,
     // unless a partial mora holds the modal gate.
     const text = String(value);
-    if (text !== field.display.value) {
-        field.setText(text);
-        maybeSearch();
+    if (text === field.display.value) {
+        return;
     }
+    const el = nativeInput();
+    const cursor = el?.selectionStart ?? text.length;
+    field.setText(text, false, cursor);
+    maybeSearch(cursor);
 }
 
 async function onScope(v: ScopeName): Promise<void> {
@@ -262,6 +288,7 @@ defineExpose({
             :spellcheck="false"
             class="flex-1"
             @keydown="onKey"
+            @pointerdown="onPointerDown"
             @update:model-value="onInput"
         />
         <template v-if="!isNarrow">

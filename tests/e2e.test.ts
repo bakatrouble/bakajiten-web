@@ -75,7 +75,6 @@ beforeAll(async () => {
                 theme: 'auto',
                 scale: 100,
                 romaji: 'Hepburn',
-                kanaCandidates: true,
             }),
         );
     });
@@ -175,21 +174,14 @@ describe.skipIf(SHELL == null)('app', () => {
         await page!.keyboard.press('Escape');
     }, 60000);
 
-    it('recognizes a drawn stroke', async () => {
+    it('handwriting panel states the model status', async () => {
         await page!.getByTitle('Handwriting').click();
-        await page!.waitForTimeout(300);
-        const box = await page!.locator('canvas').boundingBox();
-        expect(box).not.toBeNull();
-        await page!.mouse.move(box!.x + 40, box!.y + 40);
-        await page!.mouse.down();
-        await page!.mouse.move(box!.x + 120, box!.y + 120, { steps: 8 });
-        await page!.mouse.up();
-        await page!.waitForFunction(
-            () => document.querySelectorAll('.candidate-strip button').length > 0,
-            undefined,
-            { timeout: 15000 },
-        );
-        expect(await page!.locator('.candidate-strip button').count()).toBeGreaterThan(0);
+        await page!.waitForTimeout(500);
+        // The fixture catalog publishes no model pack: the panel
+        // says so (a catalog with packs offers the explicit
+        // download instead) — either way the state is stated, and
+        // drawing never errors without a model.
+        await page!.getByText(/[Hh]andwriting model/).first().waitFor({ timeout: 15000 });
     }, 60000);
 
     it('virtualizes a large result set', async () => {

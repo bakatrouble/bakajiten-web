@@ -246,19 +246,65 @@ describe('kanji', () => {
 });
 
 describe('preferred forms', () => {
-    it('prefers the kanji/reading containing the query', async () => {
+    it('prefers the kanji/reading for the matched edge', async () => {
         const b = await loadBackend();
         const found = b.dict.search('あかり', 'Exact', 10);
         const multi = found.find((e) => e.kanji.length > 1);
         expect(multi).toBeDefined();
         const kebs = multi!.kanji.map((k) => k.keb);
         expect(kebs.length).toBeGreaterThan(1);
-        expect(preferKeb(multi!, kebs[1]!)).toBe(kebs[1]);
-        expect(preferKeb(multi!, 'zzz-no-match')).toBe(multi!.heading);
+        expect(preferKeb(multi!, kebs[1]!, 'Exact')).toBe(kebs[1]);
+        expect(preferKeb(multi!, 'zzz-no-match', 'Exact')).toBe(multi!.heading);
         const withReb = found.find((e) => e.readings.length > 1) ?? multi!;
         const rebs = withReb.readings.map((r) => r.reb);
-        expect(preferReb(withReb, rebs[rebs.length - 1]!)).toBe(rebs[rebs.length - 1]);
-        expect(preferReb(withReb, 'zzz-no-match')).toBe(withReb.reading);
+        expect(preferReb(withReb, rebs[rebs.length - 1]!, 'Exact')).toBe(rebs[rebs.length - 1]);
+        expect(preferReb(withReb, 'zzz-no-match', 'Exact')).toBe(withReb.reading);
+    });
+
+    it('resolves edge-anchored forms per search mode', async () => {
+        const b = await loadBackend();
+        const found = b.dict.search('あかり', 'Exact', 10);
+        const multi = found.find((e) => e.kanji.length > 1);
+        expect(multi).toBeDefined();
+        const kebs = multi!.kanji.map((k) => k.keb);
+        // A strict head slice: not an exact form, so Exact falls
+        // back to the heading while Prefix resolves the anchored form.
+        const head = kebs[1]!.slice(0, Math.max(1, kebs[1]!.length - 1));
+        if (!kebs.includes(head)) {
+            expect(preferKeb(multi!, head, 'Exact')).toBe(multi!.heading);
+        }
+        expect(preferKeb(multi!, head, 'Prefix').startsWith(head)).toBe(true);
+        // A strict tail slice: same split between Exact and Suffix.
+        const tail = kebs[1]!.slice(1);
+        if (tail.length > 0 && !kebs.includes(tail)) {
+            expect(preferKeb(multi!, tail, 'Exact')).toBe(multi!.heading);
+        }
+        if (tail.length > 0) {
+            expect(preferKeb(multi!, tail, 'Suffix').endsWith(tail)).toBe(true);
+        }
+    });
+
+    it('maps the affix toggles to the search mode', async () => {
+        const { setActivePinia, createPinia } = await import('pinia');
+        setActivePinia(createPinia());
+        const { useSearch } = await import('../src/state/search.ts');
+        const search = useSearch();
+        try {
+            search.prefix = false;
+            search.suffix = false;
+            expect(search.mode).toBe('Exact');
+            search.prefix = true;
+            expect(search.mode).toBe('Prefix');
+            search.suffix = true;
+            expect(search.mode).toBe('Middle');
+            search.prefix = false;
+            expect(search.mode).toBe('Suffix');
+        } finally {
+            // Restore the shipped defaults (prefix on) so later
+            // tests see the same prefs as a fresh launch.
+            search.prefix = true;
+            search.suffix = false;
+        }
     });
 
     it('splits kanji and reading restrictions', async () => {
@@ -380,20 +426,136 @@ describe('sha256Fallback', () => {
     });
 });
 
-describe('recognizer', () => {
-    it('matches a diagonal stroke', async () => {
-        const b = await loadBackend();
-        expect(b.recognizer.templateCount()).toBeGreaterThan(10000n);
-        const cand = b.recognizer.recognize(
-            [
-                [
-                    { x: 0.1, y: 0.1 },
-                    { x: 0.9, y: 0.9 },
-                ],
-            ],
-            3,
-            false,
+describe('recognizer model pack', () => {
+    it('rejects non-model bytes without touching the network', async () => {
+        const { Recognizer, RecognizerError } = await import(
+            '../src/vendor/librecognizer/recognizer.ts'
         );
-        expect(cand.length).toBe(3);
+        expect(() =>
+            Recognizer.convertModel(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6])),
+        ).toThrow(RecognizerError);
+    });
+
+    it('loads no engine with the dictionaries (model installs on demand)', async () => {
+        const b = await loadBackend();
+        expect(b.recognizer).toBeNull();
+    });
+
+    it('builds proxy requests with the target in the header', async () => {
+        const { proxyRequest, RECOGNIZER_PROXY, RECOGNIZER_PACKS } = await import(
+            '../src/backend/Backend.ts'
+        );
+        expect(RECOGNIZER_PROXY).toBe('https://cors.bakatrouble.me/');
+        for (const p of RECOGNIZER_PACKS) {
+            const req = proxyRequest(p.url);
+            expect(req.url).toBe('https://cors.bakatrouble.me/');
+            expect(req.headers).toEqual({ 'X-Target-URL': p.url });
+            expect(p.url.startsWith('https://dl.google.com/handwriting/models/')).toBe(true);
+        }
+        expect(RECOGNIZER_PACKS.map((p) => p.member)).toEqual(['ja.tflite', 'ja.recospec']);
+    });
+
+    it('pins the AAR pack sha1s and sizes', async () => {
+        const { RECOGNIZER_PACKS } = await import('../src/backend/Backend.ts');
+        expect(RECOGNIZER_PACKS).toEqual([
+            expect.objectContaining({
+                sha1: 'fc5c5f0a999635dfabb9bebb7a4834cc1b7f075d',
+                zipSize: 3132494,
+                memberSuffix: '.tflite',
+                artifactSize: 4186912,
+            }),
+            expect.objectContaining({
+                sha1: '0cc70076bfeaee959e558ca55f0ae079f2fe5f25',
+                zipSize: 46002,
+                memberSuffix: '.recospec.local',
+                artifactSize: 94195,
+            }),
+        ]);
+    });
+
+    it('hashes sha1 like the NIST vectors', async () => {
+        const { sha1Hex } = await import('../src/backend/Backend.ts');
+        const enc = new TextEncoder();
+        expect(sha1Hex(enc.encode('abc'))).toBe('a9993e364706816aba3e25717850c26c9cd0d89d');
+        expect(sha1Hex(enc.encode(''))).toBe('da39a3ee5e6b4b0d3255bfef95601890afd80709');
+    });
+
+    it('reports the pack table with a cold cache', async () => {
+        const { setDataCache, MemoryCache } = await import('../src/backend/idb.ts');
+        const { recognizerPackStatus } = await import('../src/backend/Backend.ts');
+        setDataCache(new MemoryCache());
+        const st = await recognizerPackStatus();
+        expect(st.published).toBe(true);
+        expect(st.ready).toBe(false);
+        expect(st.latestLine).toContain('Latest');
+        expect(st.savedLine).toBeNull();
+    });
+
+    it('rejects truncated zips before unzipping', async () => {
+        const { vi } = await import('vitest');
+        const { downloadRecognizerPack } = await import('../src/backend/Backend.ts');
+        vi.stubGlobal(
+            'fetch',
+            async () => new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 }),
+        );
+        try {
+            await expect(downloadRecognizerPack(() => {})).rejects.toThrow('pack says');
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('rejects zips that fail the sha1 check', async () => {
+        const { vi } = await import('vitest');
+        const { downloadRecognizerPack } = await import('../src/backend/Backend.ts');
+        vi.stubGlobal('fetch', async (url: unknown, init?: unknown) => {
+            const headers = (init as { headers?: Record<string, string> } | undefined)?.headers;
+            const target = headers?.['X-Target-URL'] ?? String(url);
+            // Right length, wrong bytes: the size check passes, the
+            // sha1 check must still refuse the download.
+            const size = target.includes('tflite') ? 3132494 : 46002;
+            return new Response(new Uint8Array(size), { status: 200 });
+        });
+        try {
+            // Right length, wrong bytes: the size check passes, the
+            // sha1 check must still refuse the download.
+            await expect(downloadRecognizerPack(() => {})).rejects.toThrow('sha1 mismatch');
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('evicts a corrupt cached bundle instead of attaching it', async () => {
+        const { setDataCache, dataCache, MemoryCache } = await import('../src/backend/idb.ts');
+        const {
+            RECOGNIZER_BUNDLE_KEY,
+            RECOGNIZER_PACKS,
+            RECOGNIZER_VERSION_KEY,
+            openCachedRecognizer,
+        } = await import('../src/backend/Backend.ts');
+        setDataCache(new MemoryCache());
+        // Stamped (current table) but undecodable: decode fails,
+        // evicts, and reports null — no network involved.
+        const stamp = RECOGNIZER_PACKS.map((p) => `${p.member}@${p.sha1}`).join(',');
+        await dataCache().set(RECOGNIZER_BUNDLE_KEY, new Uint8Array([9, 9, 9]));
+        await dataCache().set(RECOGNIZER_VERSION_KEY, new TextEncoder().encode(stamp));
+        expect(await openCachedRecognizer()).toBeNull();
+        expect(await dataCache().get(RECOGNIZER_BUNDLE_KEY)).toBeNull();
+    });
+
+    it('filters similar kanji to single non-kana hypotheses', async () => {
+        const { similarChars } = await import('../src/state/recognizer.ts');
+        const stub = {
+            recognize: () => [
+                { text: 'あ', score: 0 },
+                { text: '食', score: 1 },
+                { text: '飯', score: 2 },
+                { text: '食べる', score: 3 },
+                { text: '食', score: 4 },
+            ],
+        };
+        expect(similarChars(stub as never, [[{ x: 1, y: 1 }]], '食')).toEqual(['飯']);
+        expect(similarChars(stub as never, [], '食')).toEqual([]);
+        expect(similarChars(stub as never, [[]], '食')).toEqual([]);
     });
 });

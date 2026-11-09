@@ -122,7 +122,13 @@ function cancel(): void {
     paint();
 }
 
-function onClear(): void {
+// Right-click clears on the desktop; a touch long-press must
+// never wipe ink (the toolbar Clear button is the universal
+// path). Unknown event flavors keep the desktop behavior.
+function onContextMenu(e: MouseEvent): void {
+    if ('pointerType' in e && (e as PointerEvent).pointerType !== 'mouse') {
+        return;
+    }
     clear();
 }
 
@@ -142,6 +148,6 @@ onMounted(() => {
         @pointermove="move"
         @pointerup="up"
         @pointercancel="cancel"
-        @contextmenu.prevent="onClear"
+        @contextmenu.prevent="onContextMenu"
     />
 </template>

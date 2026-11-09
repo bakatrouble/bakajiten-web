@@ -24,7 +24,7 @@ import { useKanjiHover } from '../../state/kanjiHover.ts';
 import { useSearch } from '../../state/search.ts';
 import { useSettings } from '../../state/settings.ts';
 import { useColumnWidths } from '../../ui/tableColumns.ts';
-import type { DictEntry } from '../../vendor/libdict/dict.ts';
+import type { DictEntry, SearchMode } from '../../vendor/libdict/dict.ts';
 import { Dict } from '../../vendor/libdict/dict.ts';
 import TagBadges from './TagBadges.vue';
 
@@ -41,6 +41,9 @@ const props = defineProps<{
     rows?: ResultRow[] | null;
     selected?: number | null;
     queryText?: string;
+    /** Matched-edge mode for controlled rows (kanji dialog words
+     *  tab searches Middle); defaults to the store mode. */
+    mode?: SearchMode | null;
     onSelect?: ((index: number) => void) | null;
 }>();
 
@@ -54,7 +57,7 @@ const emit = defineEmits<{
 const OVERSCAN = 6;
 
 const searchStore = useSearch();
-const { hits, selected: storeSelected, query } = storeToRefs(searchStore);
+const { hits, selected: storeSelected, query, mode: storeMode } = storeToRefs(searchStore);
 const { hitAt, entryAtHit } = searchStore;
 const { settings } = storeToRefs(useSettings());
 
@@ -64,6 +67,9 @@ const controlled = computed(() => props.onSelect != null);
 const count = computed(() => props.rows?.length ?? hits.value.length);
 const selIndex = computed(() => (controlled.value ? (props.selected ?? -1) : storeSelected.value));
 const q = computed(() => props.queryText ?? query.value);
+// Controlled rows (kanji dialog) match Middle; the main list
+// follows the affix toggles through the store mode.
+const effMode = computed(() => props.mode ?? storeMode.value);
 
 function rowAt(i: number): ResultRow {
     if (props.rows != null) {
@@ -127,7 +133,7 @@ function measure(): void {
 
 function readingOf(e: DictEntry): string {
     const { romaji } = settings.value;
-    const reb = preferReb(e, q.value);
+    const reb = preferReb(e, q.value, effMode.value);
     return romaji === 'Hepburn' || romaji === 'Kunrei' ? Dict.kanaToRomaji(reb, romaji) : reb;
 }
 
@@ -137,7 +143,7 @@ function highlight(text: string, row: number): string {
 
 function headingHtml(i: number): string {
     const e = rowAt(i).entry;
-    return e == null ? '' : highlight(preferKeb(e, q.value), i);
+    return e == null ? '' : highlight(preferKeb(e, q.value, effMode.value), i);
 }
 
 function readingHtml(i: number): string {

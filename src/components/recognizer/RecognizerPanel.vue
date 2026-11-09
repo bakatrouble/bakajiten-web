@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // Floating handwriting panel: pen-space capture (amber live
-// stroke), undo/redo, live candidate strip with kata/hira tints,
+// stroke), undo/redo, live candidate strip with kana tints,
 // edge fades, grid; anchored under the search button by the app.
+// The model is optional: without it the panel offers an explicit
+// download instead of candidates.
 
 import { useElementSize } from '@vueuse/core';
 import { storeToRefs } from 'pinia';
@@ -24,31 +26,39 @@ const emit = defineEmits<{
 }>();
 
 const recognizerStore = useRecognizer();
-const { strokes, undone, matchMs, templateCount, modelReady, open } = storeToRefs(recognizerStore);
-const { undo, redo, clear, schedule } = recognizerStore;
+const { strokes, undone, matchMs, modelState, modelNote, packProgress, open } =
+    storeToRefs(recognizerStore);
+const { undo, redo, clear, downloadModel } = recognizerStore;
 const { settings } = storeToRefs(useSettings());
-const kana = computed({
-    get: () => settings.value.kanaCandidates,
-    set: (v: boolean) => {
-        settings.value.kanaCandidates = v;
-    },
+
+const statusText = computed(() => {
+    if (modelState.value === 'ready') {
+        const base = `${strokes.value.length} stroke${strokes.value.length === 1 ? '' : 's'}`;
+        return matchMs.value > 0 ? `${base} · ${matchMs.value.toFixed(0)} ms` : base;
+    }
+    if (modelState.value === 'downloading' && packProgress.value != null) {
+        const { loaded, total } = packProgress.value;
+        const pct = total > 0 ? Math.round((100 * loaded) / total) : 0;
+        return `Downloading handwriting model … ${pct}%`;
+    }
+    if (modelState.value === 'downloading') {
+        return 'Downloading handwriting model …';
+    }
+    if (modelState.value === 'checking') {
+        return 'Loading model';
+    }
+    if (modelState.value === 'error') {
+        return modelNote.value !== '' ? modelNote.value : 'Download failed';
+    }
+    return '';
 });
-function onKana(): void {
-    kana.value = !kana.value;
-    schedule();
-}
+const showSpinner = computed(
+    () => modelState.value === 'checking' || modelState.value === 'downloading',
+);
 const grid = ref(true);
 const root = ref<{ $el?: unknown } | null>(null);
 const left = ref(0);
 const top = ref(0);
-
-const statusText = computed(() => {
-    if (!modelReady.value) {
-        return 'Loading model';
-    }
-    const base = `${templateCount.value.toString()} templates · ${strokes.value.length} stroke${strokes.value.length === 1 ? '' : 's'}`;
-    return matchMs.value > 0 ? `${base} · ${matchMs.value.toFixed(0)} ms` : base;
-});
 
 function place(x: number, y: number): void {
     left.value = Math.max(8, Math.min(x, window.innerWidth - panelWidthLive.value - 8));
@@ -150,13 +160,6 @@ defineExpose({ place, placeAbove });
                             @click="grid = !grid"
                             ><app-icon name="grid" /></Button
                         >
-                        <Button
-                            :variant="kana ? 'default' : 'ghost'"
-                            title="Kana matching"
-                            class="w-10 h-10"
-                            @click="onKana"
-                            ><app-icon name="kana-match" /></Button
-                        >
                     </div>
                     <div class="flex-1" />
                     <div ref="bottomGroupRef" class="flex flex-col gap-1">
@@ -182,15 +185,22 @@ defineExpose({ place, placeAbove });
                     </div>
                 </div>
             </div>
-            <candidate-strip
-                @insert="emit('insert', $event)"
-                @open-kanji="emit('openKanji', $event)"
-                @tip="(ch, x, y) => emit('tip', ch, x, y)"
-                @tip-hide="emit('tipHide')"
-            />
-            <div class="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                <material-spinner v-if="!modelReady" /><span>{{ statusText }}</span>
-            </div>
+                <candidate-strip
+                    v-if="modelState === 'ready'"
+                    @insert="emit('insert', $event)"
+                    @open-kanji="emit('openKanji', $event)"
+                    @tip="(ch, x, y) => emit('tip', ch, x, y)"
+                    @tip-hide="emit('tipHide')"
+                />
+                <div v-else-if="modelState === 'missing'" class="mt-2 flex flex-col gap-1 text-sm">
+                    <span class="text-muted-foreground">{{ modelNote }}</span>
+                    <Button variant="outline" size="sm" class="self-start" @click="downloadModel"
+                        >Download handwriting model</Button
+                    >
+                </div>
+                <div class="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                    <material-spinner v-if="showSpinner" /><span>{{ statusText }}</span>
+                </div>
             <div
                 class="absolute bottom-0 right-0 z-10 cursor-nwse-resize text-muted-foreground text-xs select-none pt-3 pl-3"
                 title="Resize panel"

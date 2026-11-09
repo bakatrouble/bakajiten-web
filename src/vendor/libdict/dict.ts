@@ -1586,13 +1586,19 @@ export namespace Dict {
       _rt.scratchReset();
     }
   }
-  /** Heading preferring the kanji spelling containing the query. */
-  export function preferKeb(entry: DictEntry, query: string): string {
+  /**
+   * Heading preferring the kanji spelling for the matched edge:
+   * exact match, then edge-anchored, then first containing, else
+   * the first form.
+   */
+  export function preferKeb(entry: DictEntry, query: string, mode: SearchMode): string {
     const _rb_entry = _rt.lowerIntoBuffer((w) => { _lowerDictEntry(w, entry); });
     const _rb_query = _rt.lowerString(query);
-    const _argPtr = _rt.scratchAlloc(6 * 8);
+    const _rb_mode = _rt.lowerIntoBuffer((w) => { _lowerSearchMode(w, mode); });
+    const _argPtr = _rt.scratchAlloc(9 * 8);
     _rt.writeRustBufferElements(_argPtr, _rb_entry);
     _rt.writeRustBufferElements(_argPtr + 24, _rb_query);
+    _rt.writeRustBufferElements(_argPtr + 48, _rb_mode);
     const _retPtr = _rt.scratchAlloc(7 * 8);
     try {
       _rt.call('uniffi_ffibuffer_dict_fn_func_prefer_keb', _argPtr, _retPtr);
@@ -1603,13 +1609,19 @@ export namespace Dict {
       _rt.scratchReset();
     }
   }
-  /** Reading preferring the spelling containing the query. */
-  export function preferReb(entry: DictEntry, query: string): string {
+  /**
+   * Reading preferring the spelling for the matched edge:
+   * exact match, then edge-anchored, then first containing, else
+   * the first reading.
+   */
+  export function preferReb(entry: DictEntry, query: string, mode: SearchMode): string {
     const _rb_entry = _rt.lowerIntoBuffer((w) => { _lowerDictEntry(w, entry); });
     const _rb_query = _rt.lowerString(query);
-    const _argPtr = _rt.scratchAlloc(6 * 8);
+    const _rb_mode = _rt.lowerIntoBuffer((w) => { _lowerSearchMode(w, mode); });
+    const _argPtr = _rt.scratchAlloc(9 * 8);
     _rt.writeRustBufferElements(_argPtr, _rb_entry);
     _rt.writeRustBufferElements(_argPtr + 24, _rb_query);
+    _rt.writeRustBufferElements(_argPtr + 48, _rb_mode);
     const _retPtr = _rt.scratchAlloc(7 * 8);
     try {
       _rt.call('uniffi_ffibuffer_dict_fn_func_prefer_reb', _argPtr, _retPtr);

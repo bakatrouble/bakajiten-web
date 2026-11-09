@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Horizontal candidate strip: kata/hira tints, edge fades,
+// Horizontal candidate strip: kana tints, edge fades,
 // vertical-wheel panning, single-click accept. A double-click
 // opens kanji info instead (the accept is held past the
 // double-click interval). Shared by the recognizer panel and
@@ -9,10 +9,13 @@ import { useKanjiHover } from '../../state/kanjiHover.ts';
 import { useCanvasTheme } from '../../ui/palette.ts';
 import Button from '../ui/button/Button.vue';
 
+/** One strip cell: decoded text plus its engine score (tooltip).
+ *  Texts arrive best-first and may repeat or span several chars;
+ *  kana tints derive from the first character (the old Script
+ *  predicate, U+3040–U+30FF), so no backend is needed to style. */
 export interface StripItem {
-    character: string;
-    distance?: number | bigint;
-    isKana?: boolean;
+    text: string;
+    score?: number;
 }
 
 const props = defineProps<{ items: StripItem[] }>();
@@ -32,18 +35,27 @@ const strip = ref<HTMLElement | null>(null);
 const showLeftFade = ref(false);
 const showRightFade = ref(false);
 
+function isKanaText(text: string): boolean {
+    const c = text.codePointAt(0) ?? 0;
+    return c >= 0x3040 && c <= 0x30ff;
+}
+
 function isKatakana(ch: string): boolean {
     const c = ch.codePointAt(0) ?? 0;
     return c >= 0x30a0 && c <= 0x30ff;
 }
 
 function candidateClass(c: StripItem): string {
-    if (c.isKana !== true) {
+    if (!isKanaText(c.text)) {
         return '';
     }
-    return isKatakana(c.character)
+    return isKatakana(c.text)
         ? 'text-sky-600 dark:text-sky-400 bg-sky-500/15'
         : 'text-emerald-600 dark:text-emerald-500 bg-emerald-500/15';
+}
+
+function titleOf(c: StripItem): string {
+    return c.score == null ? c.text : `${c.text} · ${c.score.toFixed(2)}`;
 }
 
 let clickTimer: number | undefined;
@@ -111,19 +123,19 @@ onMounted(() => {
             @wheel="onWheel"
         >
             <Button
-                v-for="c in items"
-                :key="c.character"
+                v-for="(c, i) in items"
+                :key="`${i}:${c.text}`"
                 variant="ghost"
                 size="lg"
                 class="text-lg rounded-none hover:bg-foreground! hover:text-background h-auto"
-                :title="c.distance == null ? c.character : String(c.distance)"
+                :title="titleOf(c)"
                 :class="candidateClass(c)"
-                @click="onInsert(c.character)"
-                @dblclick="onOpenKanji(c.character)"
+                @click="onInsert(c.text)"
+                @dblclick="onOpenKanji(c.text)"
                 @mousemove="onHover"
                 @mouseleave="onLeave"
                 >{{
-                    c.character
+                    c.text
                 }}</Button
             >
         </div>

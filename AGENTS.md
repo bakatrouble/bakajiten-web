@@ -51,7 +51,11 @@ demand there — the scope dropdown greys out files not yet
 downloaded) and downloads on confirmation.
 All fetches go direct, same-origin — the old CORS proxy is gone
 (data releases re-trigger the Pages deploy, so hosted artifacts
-track the latest release). Offline with a warm cache loads from
+track the latest release) — except the handwriting pack: the two
+dl.google.com zips carry no CORS headers, so the panel download
+fetches them through the CORS proxy (target in the
+`X-Target-URL` header, sha1 + sizes verified; see
+`RECOGNIZER_PACKS` in `src/backend/Backend.ts`). Offline with a warm cache loads from
 the cache without touching the network. Blobs ship as `*.bin.gz`
 straight from the release and decode client-side
 via `DecompressionStream` — with a magic sniff, so hosts that

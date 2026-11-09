@@ -1,6 +1,6 @@
 {
     "name": "bakajiten-web",
-    "version": "0.2.0",
+    "version": "0.3.3",
     "private": true,
     "license": "MIT",
     "type": "module",
@@ -22,6 +22,7 @@
         "@mdi/js": "^7.4.47",
         "@noble/hashes": "^2.4.0",
         "@vueuse/core": "^15.0.0",
+        "@zip.js/zip.js": "^2.24.0",
         "class-variance-authority": "^0.7.1",
         "cn": "^0.5.0",
         "pinia": "^4.1.0",

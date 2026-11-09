@@ -7,7 +7,6 @@ import dictionarySvg from '../../assets/icons/dictionary.svg?raw';
 import eraseSvg from '../../assets/icons/erase.svg?raw';
 import gridSvg from '../../assets/icons/grid.svg?raw';
 import kanaSvg from '../../assets/icons/kana.svg?raw';
-import kanaMatchSvg from '../../assets/icons/kana-match.svg?raw';
 import latinSvg from '../../assets/icons/latin.svg?raw';
 import menuSvg from '../../assets/icons/menu.svg?raw';
 import penSvg from '../../assets/icons/pen.svg?raw';
@@ -21,7 +20,6 @@ const icons = {
     dictionary: dictionarySvg,
     erase: eraseSvg,
     grid: gridSvg,
-    'kana-match': kanaMatchSvg,
     kana: kanaSvg,
     latin: latinSvg,
     menu: menuSvg,

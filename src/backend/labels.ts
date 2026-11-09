@@ -3,7 +3,7 @@
 // (`&vt;` -> `vt`), deduplicated, with description tips. Names
 // resolve the name-type table. This module keeps the web UI shapes
 // plus pure rendering helpers (badge colors, HTML highlighting).
-import { Dict, type DictEntry, type ShapedSense } from '../vendor/libdict/dict.ts';
+import { Dict, type DictEntry, type SearchMode, type ShapedSense } from '../vendor/libdict/dict.ts';
 
 export interface Tag {
     label: string;
@@ -123,14 +123,14 @@ export function senseGlossHtml(sense: SenseDisplay, matched: string): string {
     return highlightMatch(sense.glosses.join('; '), matched);
 }
 
-/** Heading form preferring the kanji spelling that contains the
- query; otherwise the first form. */
-export function preferKeb(entry: DictEntry, query: string): string {
-    return Dict.preferKeb(entry, query);
+/** Heading form for the matched edge: exact match, then
+ edge-anchored, then first containing; otherwise the first form. */
+export function preferKeb(entry: DictEntry, query: string, mode: SearchMode): string {
+    return Dict.preferKeb(entry, query, mode);
 }
 
-/** Reading preferring the spelling that contains the query;
- otherwise the first reading. */
-export function preferReb(entry: DictEntry, query: string): string {
-    return Dict.preferReb(entry, query);
+/** Reading for the matched edge: exact match, then
+ edge-anchored, then first containing; otherwise the first reading. */
+export function preferReb(entry: DictEntry, query: string, mode: SearchMode): string {
+    return Dict.preferReb(entry, query, mode);
 }
