@@ -177,11 +177,13 @@ describe.skipIf(SHELL == null)('app', () => {
     it('handwriting panel states the model status', async () => {
         await page!.getByTitle('Handwriting').click();
         await page!.waitForTimeout(500);
-        // The fixture catalog publishes no model pack: the panel
-        // says so (a catalog with packs offers the explicit
-        // download instead) — either way the state is stated, and
-        // drawing never errors without a model.
-        await page!.getByText(/[Hh]andwriting model/).first().waitFor({ timeout: 15000 });
+        // The pack is required at consent, so it is installed by
+        // now: the panel shows the ready state (stroke count),
+        // never the missing-model download prompt.
+        await page!.getByText('0 strokes').waitFor({ timeout: 15000 });
+        expect(
+            await page!.getByRole('button', { name: 'Download handwriting model' }).count(),
+        ).toBe(0);
     }, 60000);
 
     it('virtualizes a large result set', async () => {

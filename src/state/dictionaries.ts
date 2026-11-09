@@ -3,7 +3,7 @@
 // share one shape). Host effects stay out: reload-vs-handoff and
 // cache-usage refreshes arrive as injected callbacks.
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import {
     type CachePlan,
     checkCache,
@@ -12,10 +12,14 @@ import {
     type LoadProgress,
     loadScopeFile,
     OPTIONAL_FILES,
+    RECOGNIZER_PACKS,
     REQUIRED_FILES,
+    type RecognizerPackStatus,
+    recognizerPackStatus,
     startLoad,
 } from '../backend/Backend.ts';
 import { dataCache } from '../backend/idb.ts';
+import { useRecognizer } from './recognizer.ts';
 import { useSearch } from './search.ts';
 
 export interface FileRow {
@@ -40,6 +44,12 @@ function formatMB(n: number): string {
     return n > 0 ? `≈${(n / 1048576).toFixed(0)} MB` : 'unknown size';
 }
 
+/// Required handwriting-model row (Qt parity: the Required section
+/// ends with the model row). Not a dictionary file: status comes
+/// from the pack table + bundle stamp, the transfer runs through
+/// the recognizer store so the panel attaches live.
+export const RECOGNIZER_ROW = 'Handwriting';
+
 export const useDictionaries = defineStore('dictionaries', () => {
     const plan = ref<CachePlan | null>(null);
     const error = ref('');
@@ -55,6 +65,21 @@ export const useDictionaries = defineStore('dictionaries', () => {
     // first-run hands off instead.
     const onComplete = ref<(() => void) | null>(null);
     const onChanged = ref<(() => void) | null>(null);
+    // Handwriting pack state (table + bundle stamp, re-read with
+    // the catalog plan) and per-member wire bytes accumulated for
+    // the row progress bar while it downloads.
+    const packStatus = ref<RecognizerPackStatus | null>(null);
+    const packSeen = ref<Record<string, number>>({});
+    const packTotal = RECOGNIZER_PACKS.reduce((t, p) => t + p.zipSize, 0);
+    const packLoaded = computed(() => Object.values(packSeen.value).reduce((t, n) => t + n, 0));
+    watch(
+        () => useRecognizer().packProgress,
+        (p) => {
+            if (p != null) {
+                packSeen.value = { ...packSeen.value, [p.file]: p.loaded };
+            }
+        },
+    );
 
     function info(name: string): FilePlan | null {
         return plan.value?.files.find((f) => f.name === name) ?? null;
@@ -138,7 +163,10 @@ export const useDictionaries = defineStore('dictionaries', () => {
         };
     }
 
-    const requiredRows = computed(() => REQUIRED_FILES.map((name) => row(name, true)));
+    const requiredRows = computed(() => [
+        ...REQUIRED_FILES.map((name) => row(name, true)),
+        recognizerRow(),
+    ]);
     const optionalRows = computed(() => OPTIONAL_FILES.map((name) => row(name, false)));
     const sections = computed(() => [
         { title: 'Required', rows: requiredRows.value },
@@ -159,10 +187,44 @@ export const useDictionaries = defineStore('dictionaries', () => {
         () => `Update all (${outdatedNames.value.length} · ${formatMB(outdatedTotal.value)})`,
     );
 
+    function recognizerRow(): FileRow {
+        const st = packStatus.value;
+        const isBusy = busy.value.has(RECOGNIZER_ROW);
+        const ready = st?.ready ?? false;
+        const stale = st != null && !ready && st.savedLine != null;
+        return {
+            name: RECOGNIZER_ROW,
+            required: true,
+            statusWord:
+                st == null
+                    ? 'Checking…'
+                    : ready
+                      ? 'Up to date'
+                      : stale
+                        ? 'Update available'
+                        : 'Not downloaded',
+            savedLine: st?.savedLine ?? null,
+            latestLine: ready ? null : (st?.latestLine ?? null),
+            actionLabel:
+                st == null
+                    ? 'Loading'
+                    : ready
+                      ? 'Up to date'
+                      : `${stale ? 'Update' : 'Download'} ${formatMB(packTotal)}`,
+            actionEnabled: st != null && !ready,
+            loading: st == null || isBusy,
+            busy: isBusy,
+            progress: isBusy ? { loaded: packLoaded.value, total: packTotal } : null,
+            deletable: false,
+            confirmArmed: false,
+        };
+    }
+
     async function refresh(): Promise<void> {
         error.value = '';
         try {
             plan.value = await checkCache(defaultDataBase());
+            packStatus.value = await recognizerPackStatus();
             // Cached-bytes view may have moved: hosts re-read on this.
             onChanged.value?.();
         } catch (e) {
@@ -175,12 +237,47 @@ export const useDictionaries = defineStore('dictionaries', () => {
         await searchStore.refreshScopes();
         await refresh();
         const missing = REQUIRED_FILES.some((n) => !(info(n)?.cached ?? false));
-        if (!missing) {
+        // Continue fires only with the dictionaries and the
+        // handwriting pack all in place.
+        if (!missing && packStatus.value?.ready === true) {
             onComplete.value?.();
         }
     }
 
+    /// Handwriting pack transfer for the Required row (single tap
+    /// and bulk share it): live attach through the recognizer
+    /// store, never a reload. True when the pack verifies ready.
+    async function downloadPackRow(): Promise<boolean> {
+        const st = await recognizerPackStatus();
+        packStatus.value = st;
+        if (st.ready) {
+            return true;
+        }
+        packSeen.value = {};
+        busy.value.add(RECOGNIZER_ROW);
+        try {
+            const reco = useRecognizer();
+            await reco.downloadModel();
+            await refresh();
+            if (packStatus.value?.ready === true) {
+                return true;
+            }
+            if (reco.modelState === 'error' && reco.modelNote !== '') {
+                error.value = reco.modelNote;
+            }
+            return false;
+        } finally {
+            busy.value.delete(RECOGNIZER_ROW);
+        }
+    }
+
     async function downloadOne(name: string, reloadOnRequired: boolean): Promise<void> {
+        if (name === RECOGNIZER_ROW) {
+            if (await downloadPackRow()) {
+                await finishRequired();
+            }
+            return;
+        }
         if (busy.value.has(name)) {
             return;
         }
@@ -233,6 +330,10 @@ export const useDictionaries = defineStore('dictionaries', () => {
                 location.reload();
                 return;
             }
+            // The pack rides the same bulk tap (no reload: the
+            // recognizer attaches live). Settings reloads above, so
+            // its row stays available there instead.
+            await downloadPackRow();
             await finishRequired();
         } catch (e) {
             error.value = e instanceof Error ? e.message : String(e);

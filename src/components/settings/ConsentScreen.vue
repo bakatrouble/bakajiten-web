@@ -2,17 +2,20 @@
 // First-run consent flow: catalog check, then the shared
 // Dictionaries manager inline (per-file status, actions, and
 // progress — no separate download screen). The bulk Download
-// required button drives the manager's own bulk fetch; entry is
-// an explicit Continue tap. Emits loaded when the backend is
-// ready (a warm cache loads without asking).
+// required button drives the manager's own bulk fetch, which
+// covers the handwriting pack too; entry is an explicit Continue
+// tap. Emits loaded when the backend is ready (a fully warm cache
+// loads without asking).
 import { computed, onMounted, ref } from 'vue';
 import {
     type CachePlan,
     checkCache,
     defaultDataBase,
     REQUIRED_FILES,
+    recognizerPackStatus,
     startLoad,
 } from '../../backend/Backend.ts';
+import { RECOGNIZER_ROW } from '../../state/dictionaries.ts';
 import MaterialSpinner from '../common/MaterialSpinner.vue';
 import Button from '../ui/button/Button.vue';
 import Card from '../ui/card/Card.vue';
@@ -35,7 +38,9 @@ const downloading = ref(false);
 // Bulk download is pointless (and hidden) once required files are
 // downloading or already in place.
 const requiredBusy = computed(
-    () => downloading.value || REQUIRED_FILES.some((n) => manager.value?.isBusy(n) ?? false),
+    () =>
+        downloading.value ||
+        [...REQUIRED_FILES, RECOGNIZER_ROW].some((n) => manager.value?.isBusy(n) ?? false),
 );
 
 async function downloadBulk(): Promise<void> {
@@ -59,9 +64,12 @@ function runCheck(): void {
     plan.value = null;
     readyToEnter.value = false;
     checking.value = true;
-    checkCache(defaultDataBase())
-        .then((p) => {
-            if (!p.needsDownload) {
+    // Dictionaries and the handwriting pack are all required: a
+    // warm dictionary cache without the pack still lands on the
+    // download screen instead of entering on its own.
+    Promise.all([checkCache(defaultDataBase()), recognizerPackStatus()])
+        .then(([p, pack]) => {
+            if (!p.needsDownload && pack.ready) {
                 // Warm cache opens on its own (nothing downloaded).
                 startLoad(p)
                     .then(() => emit('loaded'))

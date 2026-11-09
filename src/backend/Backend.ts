@@ -425,7 +425,12 @@ async function fetchPackZip(
     onProgress: (p: LoadProgress) => void,
 ): Promise<Uint8Array> {
     const req = proxyRequest(pack.url);
-    const resp = await fetch(req.url, { headers: req.headers });
+    // Bypass the HTTP cache: the proxy answers every pack from one
+    // URL with a cacheable response that does not Vary on
+    // X-Target-URL, so the second parallel download would read the
+    // first file's bytes out of the cache (ja.recospec got
+    // ja.tflite's 3132494 bytes).
+    const resp = await fetch(req.url, { headers: req.headers, cache: 'no-store' });
     if (!resp.ok || resp.body == null) {
         throw new Error(`fetch ${pack.member}: ${resp.status}`);
     }

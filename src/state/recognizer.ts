@@ -1,9 +1,10 @@
 // Handwriting panel state: stroke capture (unit space, quantized
 // to pen 0–255 on send like the desktop recognizer input),
 // undo/redo, debounced recognition over the installed model pack.
-// The model is optional: dictionaries load without it, the panel
-// offers an explicit download, and a warm converted bundle
-// decodes with no network.
+// The model is required at entry (consent screen plus the
+// Dictionaries manager's Required row); the panel offers an
+// explicit download only once past entry, and a warm converted
+// bundle decodes with no network.
 
 import { defineStore } from 'pinia';
 import { ref } from 'vue';

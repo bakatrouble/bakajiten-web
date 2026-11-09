@@ -44,7 +44,9 @@ The app never downloads blobs uninvited. On launch it fetches only
 data release into `public/data/`, baked in as `VITE_DATA_BASE`;
 overridable per session with `?data=<base-url>`) and checks the
 IndexedDB cache (`bakajiten-data` store); when files are missing
-or the manifest changed, it shows a consent screen (one-tap bulk
+or the manifest changed — or the handwriting pack is missing, which
+is required like the dictionaries (its own Required row at the end
+of the manager list, Qt parity) — it shows a consent screen (one-tap bulk
 download plus the same Dictionaries manager used under Settings,
 so per-file status and actions match; Names/Kokugo download on
 demand there — the scope dropdown greys out files not yet
@@ -55,7 +57,11 @@ track the latest release) — except the handwriting pack: the two
 dl.google.com zips carry no CORS headers, so the panel download
 fetches them through the CORS proxy (target in the
 `X-Target-URL` header, sha1 + sizes verified; see
-`RECOGNIZER_PACKS` in `src/backend/Backend.ts`). Offline with a warm cache loads from
+`RECOGNIZER_PACKS` in `src/backend/Backend.ts`). The two zips share
+one proxy URL with the Google URL in the header, so pack downloads
+bypass the HTTP cache (`no-store`): the cached response does not
+vary on the header and parallel downloads would swap bodies.
+Offline with a warm cache loads from
 the cache without touching the network. Blobs ship as `*.bin.gz`
 straight from the release and decode client-side
 via `DecompressionStream` — with a magic sniff, so hosts that
