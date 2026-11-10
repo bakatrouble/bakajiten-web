@@ -80,6 +80,14 @@ export const useRecognizer = defineStore('recognizer', () => {
     const modelNote = ref('');
     const packProgress = ref<LoadProgress | null>(null);
     const open = ref(false);
+    // Canvas CSS-px size at capture (Qt parity: ink is pixels, so
+    // the pen mapping uses the live geometry at query time, like
+    // toPen). The canvas reports it on every resize.
+    const inkSize = ref({ w: 0, h: 0 });
+
+    function setInkSize(w: number, h: number): void {
+        inkSize.value = { w, h };
+    }
 
     let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -93,15 +101,20 @@ export const useRecognizer = defineStore('recognizer', () => {
             return;
         }
         const r = model.value;
-        if (r == null) {
+        const { w, h } = inkSize.value;
+        if (r == null || w <= 0 || h <= 0) {
             candidates.value = [];
             matchMs.value = 0;
             return;
         }
         const t0 = performance.now();
-        // Pen space 0–255 integers, like the desktop recognizer input.
+        // Pixel ink → pen space 0–255 against the live geometry
+        // (Qt toPen parity, clamped: drags may leave the canvas).
         const pen = strokes.value.map((s) =>
-            s.map((p) => ({ x: Math.round(p.x * 255), y: Math.round(p.y * 255) })),
+            s.map((p) => ({
+                x: Math.round(Math.min(255, Math.max(0, (p.x / w) * 255))),
+                y: Math.round(Math.min(255, Math.max(0, (p.y / h) * 255))),
+            })),
         );
         try {
             candidates.value = r.recognize(pen, 20);
@@ -214,6 +227,7 @@ export const useRecognizer = defineStore('recognizer', () => {
         modelNote,
         packProgress,
         open,
+        setInkSize,
         toggle,
         pushStroke,
         undo,

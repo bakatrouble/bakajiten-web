@@ -2,8 +2,8 @@
 // Floating handwriting panel: pen-space capture (amber live
 // stroke), undo/redo, live candidate strip with kana tints,
 // edge fades, grid; anchored under the search button by the app.
-// The model is optional: without it the panel offers an explicit
-// download instead of candidates.
+// Free aspect like the desktop: the corner grip resizes width and
+// height independently and the grid adapts to any canvas shape.
 
 import { useElementSize } from '@vueuse/core';
 import { storeToRefs } from 'pinia';
@@ -81,10 +81,15 @@ function placeAbove(x: number, bottom: number): void {
 // the live drag value until pointer-up commits it.
 const widthPx = ref<number | null>(null);
 const panelWidthLive = computed(() => widthPx.value ?? settings.value.panelWidthPx ?? 368);
+// Canvas height is independent (Qt parity: the corner grip resizes
+// both axes and the grid adapts to any aspect). heightPx carries
+// the live drag value until pointer-up commits it.
+const heightPx = ref<number | null>(null);
+const canvasHeightLive = computed(() => heightPx.value ?? settings.value.panelHeightPx ?? 320);
 
-// Canvas never shrinks below the button groups (3×40px buttons
-// + 2×4px gaps each): min width keeps it square at that height.
-// The spacer between the groups stretches instead, so the groups
+// Canvas floor: the drag clamps width only, so this is just the
+// panel's horizontal minimum (buttons flank the canvas). The
+// spacer between the groups stretches instead, so the groups
 // themselves (not the whole column) are measured.
 const topGroupRef = ref<HTMLElement | null>(null);
 const bottomGroupRef = ref<HTMLElement | null>(null);
@@ -108,10 +113,17 @@ function startResize(e: PointerEvent): void {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
-    const start = panelWidthLive.value;
+    const startY = e.clientY;
+    const startW = panelWidthLive.value;
+    const startH = canvasHeightLive.value;
     const minW = panelMin.value;
     const move = (ev: PointerEvent): void => {
-        widthPx.value = Math.min(640, Math.max(minW, start + (ev.clientX - startX)));
+        // Only the minimum clamps (panel minimum for width, button
+        // groups for height); there is no maximum, like the desktop
+        // corner grip.
+        widthPx.value = Math.max(minW, startW + (ev.clientX - startX));
+        const minH = canvasMin.value > 0 ? canvasMin.value : 160;
+        heightPx.value = Math.max(minH, startH + (ev.clientY - startY));
     };
     const up = (): void => {
         window.removeEventListener('pointermove', move);
@@ -119,6 +131,10 @@ function startResize(e: PointerEvent): void {
         if (widthPx.value != null) {
             settings.value.panelWidthPx = Math.round(widthPx.value);
             widthPx.value = null;
+        }
+        if (heightPx.value != null) {
+            settings.value.panelHeightPx = Math.round(heightPx.value);
+            heightPx.value = null;
         }
     };
     window.addEventListener('pointermove', move);
@@ -140,7 +156,11 @@ defineExpose({ place, placeAbove });
             <div class="flex gap-2 items-stretch">
                 <div
                     class="flex-1 min-w-0"
-                    :style="canvasMin > 0 ? { minWidth: `${canvasMin}px` } : undefined"
+                    :style="{
+                        minWidth: canvasMin > 0 ? `${canvasMin}px` : undefined,
+                        height: `${canvasHeightLive}px`,
+                        minHeight: canvasMin > 0 ? `${canvasMin}px` : undefined,
+                    }"
                 >
                     <recognizer-canvas :grid="grid" />
                 </div>

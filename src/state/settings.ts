@@ -18,6 +18,8 @@ export interface Settings {
     resultsPct: number | null;
     /** Recognizer panel width in px (null = default 368). */
     panelWidthPx: number | null;
+    /** Recognizer canvas height in px (null = default 320). */
+    panelHeightPx: number | null;
     /** Kanji dialog strips (all hidden by default, like Qt). */
     kanjiStrips: { similar: boolean; parts: boolean; partOf: boolean };
     /** Kanji dialog geometry (null = default right-side card). */
@@ -40,7 +42,15 @@ function clampPct(n: unknown): number | null {
 }
 
 function clampPanel(n: unknown): number | null {
-    return typeof n === 'number' && Number.isFinite(n) && n >= 280 && n <= 640 ? n : null;
+    // No maximum (the drag only floors); the minimum keeps the
+    // button groups fitting beside the canvas.
+    return typeof n === 'number' && Number.isFinite(n) && n >= 280 ? n : null;
+}
+
+function clampPanelHeight(n: unknown): number | null {
+    // No maximum (only the minimum clamps, like the drag); garbage
+    // still falls back to the default.
+    return typeof n === 'number' && Number.isFinite(n) && n >= 160 ? n : null;
 }
 
 function clampDialog(g: unknown): { x: number; y: number; w: number; h: number } | null {
@@ -67,6 +77,7 @@ function defaults(): Settings {
         searchBar: 'top',
         resultsPct: null,
         panelWidthPx: null,
+        panelHeightPx: null,
         kanjiStrips: { similar: false, parts: false, partOf: false },
         kanjiDialog: null,
     };
@@ -85,6 +96,7 @@ function sanitize(raw: unknown): Settings {
             searchBar: p.searchBar === 'bottom' ? 'bottom' : 'top',
             resultsPct: clampPct(p.resultsPct),
             panelWidthPx: clampPanel(p.panelWidthPx),
+            panelHeightPx: clampPanelHeight(p.panelHeightPx),
             kanjiStrips: {
                 similar: p.kanjiStrips?.similar === true,
                 parts: p.kanjiStrips?.parts === true,
